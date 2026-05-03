@@ -3,7 +3,11 @@ import { useRef, useState } from "react";
 import { Camera, Loader2, Sparkles, Upload, Utensils, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MacroBar } from "@/components/MacroBar";
-import { analyzeMeal, type NutritionResult } from "@/server/analyze.functions";
+import {
+  analyzeMeal,
+  type AnalyzeResponse,
+  type NutritionResult,
+} from "@/server/analyze.functions";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import heroMeal from "@/assets/hero-meal.jpg";
@@ -43,7 +47,7 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
 function Index() {
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<NutritionResult | null>(null);
+  const [response, setResponse] = useState<AnalyzeResponse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
@@ -56,13 +60,13 @@ function Index() {
       toast.error("Image must be under 10MB");
       return;
     }
-    setResult(null);
+    setResponse(null);
     setPreview(URL.createObjectURL(file));
     setLoading(true);
     try {
       const { base64, mimeType } = await fileToBase64(file);
       const data = await analyzeMeal({ data: { imageBase64: base64, mimeType } });
-      setResult(data);
+      setResponse(data);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to analyze");
     } finally {
@@ -70,9 +74,7 @@ function Index() {
     }
   };
 
-  const totalMacroGrams = result
-    ? result.total.protein + result.total.carbs + result.total.fat
-    : 0;
+  const results = response?.results ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -158,7 +160,7 @@ function Index() {
         </section>
 
         <section className="mt-4">
-          {(preview || loading || result) && (
+          {(preview || loading || results.length > 0) && (
             <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-[var(--shadow-card)]">
               <div className="grid gap-0 md:grid-cols-2">
                 <div className="relative aspect-square bg-muted md:aspect-auto">
@@ -180,79 +182,16 @@ function Index() {
                 </div>
 
                 <div className="p-6 md:p-8">
-                  {result ? (
-                    <div className="space-y-6">
-                      <div>
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                          Meal analysis
-                        </p>
-                        <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-                          {result.food.length} item{result.food.length === 1 ? "" : "s"} detected
-                        </h2>
-                        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                          {result.status && result.status.trim().length > 0
-                            ? result.status
-                            : "Estimated nutrition for your meal."}
-                        </p>
-                      </div>
-
-                      <div className="flex items-end gap-2">
-                        <span className="text-5xl font-bold tabular-nums text-foreground">
-                          {Math.round(result.total.calories)}
-                        </span>
-                        <span className="pb-1.5 text-sm text-muted-foreground">
-                          kcal total
-                        </span>
-                      </div>
-
-                      <div className="space-y-4">
-                        <MacroBar
-                          label="Protein"
-                          grams={result.total.protein}
-                          percent={(result.total.protein / totalMacroGrams) * 100}
-                          colorVar="--protein"
+                  {results.length > 0 ? (
+                    <div className="space-y-8">
+                      {results.map((result, idx) => (
+                        <ResultCard
+                          key={idx}
+                          result={result}
+                          index={idx}
+                          total={results.length}
                         />
-                        <MacroBar
-                          label="Carbs"
-                          grams={result.total.carbs}
-                          percent={(result.total.carbs / totalMacroGrams) * 100}
-                          colorVar="--carbs"
-                        />
-                        <MacroBar
-                          label="Fat"
-                          grams={result.total.fat}
-                          percent={(result.total.fat / totalMacroGrams) * 100}
-                          colorVar="--fat"
-                        />
-                      </div>
-
-                      {result.food.length > 0 && (
-                        <div className="border-t border-border pt-4">
-                          <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-                            Items detected
-                          </p>
-                          <ul className="space-y-1.5">
-                            {result.food.map((it, i: number) => (
-                              <li
-                                key={i}
-                                className="flex justify-between text-sm text-foreground"
-                              >
-                                <span>
-                                  {it.name}
-                                  {it.quantity ? (
-                                    <span className="ml-1 text-muted-foreground">
-                                      · {it.quantity}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <span className="tabular-nums text-muted-foreground">
-                                  {Math.round(it.calories)} kcal
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
+                      ))}
                     </div>
                   ) : (
                     <div className="flex h-full min-h-[260px] flex-col items-center justify-center text-center text-muted-foreground">
@@ -305,6 +244,93 @@ function Index() {
       <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
         Estimates are approximate. Use as guidance, not medical advice.
       </footer>
+    </div>
+  );
+}
+
+function ResultCard({
+  result,
+  index,
+  total,
+}: {
+  result: NutritionResult;
+  index: number;
+  total: number;
+}) {
+  const totalMacroGrams =
+    result.total.protein + result.total.carbs + result.total.fat || 1;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+          {total > 1 ? `Analysis ${index + 1} of ${total}` : "Meal analysis"}
+        </p>
+        <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+          {result.food.length} item{result.food.length === 1 ? "" : "s"} detected
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {result.status && result.status.trim().length > 0
+            ? result.status
+            : "Estimated nutrition for your meal."}
+        </p>
+      </div>
+
+      <div className="flex items-end gap-2">
+        <span className="text-5xl font-bold tabular-nums text-foreground">
+          {Math.round(result.total.calories)}
+        </span>
+        <span className="pb-1.5 text-sm text-muted-foreground">kcal total</span>
+      </div>
+
+      <div className="space-y-4">
+        <MacroBar
+          label="Protein"
+          grams={result.total.protein}
+          percent={(result.total.protein / totalMacroGrams) * 100}
+          colorVar="--protein"
+        />
+        <MacroBar
+          label="Carbs"
+          grams={result.total.carbs}
+          percent={(result.total.carbs / totalMacroGrams) * 100}
+          colorVar="--carbs"
+        />
+        <MacroBar
+          label="Fat"
+          grams={result.total.fat}
+          percent={(result.total.fat / totalMacroGrams) * 100}
+          colorVar="--fat"
+        />
+      </div>
+
+      {result.food.length > 0 && (
+        <div className="border-t border-border pt-4">
+          <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+            Items detected
+          </p>
+          <ul className="space-y-1.5">
+            {result.food.map((it, i) => (
+              <li
+                key={i}
+                className="flex justify-between text-sm text-foreground"
+              >
+                <span>
+                  {it.name}
+                  {it.quantity ? (
+                    <span className="ml-1 text-muted-foreground">
+                      · {it.quantity}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  {Math.round(it.calories)} kcal
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
