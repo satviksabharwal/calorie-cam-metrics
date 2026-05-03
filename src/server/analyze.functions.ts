@@ -16,6 +16,7 @@ const FoodItemSchema = z.object({
   protein: z.number(),
   carbs: z.number(),
   fat: z.number(),
+  fibre: z.number().optional().default(0),
 });
 
 const TotalSchema = z.object({
@@ -23,6 +24,7 @@ const TotalSchema = z.object({
   protein: z.number(),
   carbs: z.number(),
   fat: z.number(),
+  fibre: z.number().optional().default(0),
 });
 
 export const NutritionResultSchema = z.object({
@@ -51,8 +53,9 @@ function computeTotals(food: z.infer<typeof FoodItemSchema>[]) {
       protein: acc.protein + (f.protein || 0),
       carbs: acc.carbs + (f.carbs || 0),
       fat: acc.fat + (f.fat || 0),
+      fibre: acc.fibre + (f.fibre || 0),
     }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 }
   );
 }
 
