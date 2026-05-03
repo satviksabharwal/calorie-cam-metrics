@@ -1,130 +1,95 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+const WEBHOOK_URL = "https://satviksabharwal.app.n8n.cloud/webhook-test/meal-ai";
+
 const InputSchema = z.object({
   imageBase64: z.string().min(100).max(15_000_000),
   mimeType: z.string().min(3).max(50),
+  filename: z.string().min(1).max(200).default("meal.jpg"),
 });
 
-const NutritionSchema = z.object({
-  dish: z.string(),
-  description: z.string(),
+const FoodItemSchema = z.object({
+  name: z.string(),
+  quantity: z.string().optional().default(""),
   calories: z.number(),
-  protein_g: z.number(),
-  carbs_g: z.number(),
-  fat_g: z.number(),
-  confidence: z.enum(["low", "medium", "high"]),
-  items: z.array(
-    z.object({
-      name: z.string(),
-      calories: z.number(),
-      protein_g: z.number(),
-      carbs_g: z.number(),
-      fat_g: z.number(),
-    })
-  ),
+  protein: z.number(),
+  carbs: z.number(),
+  fat: z.number(),
 });
 
-export type NutritionResult = z.infer<typeof NutritionSchema>;
+const TotalSchema = z.object({
+  calories: z.number(),
+  protein: z.number(),
+  carbs: z.number(),
+  fat: z.number(),
+});
+
+export const NutritionResultSchema = z.object({
+  status: z.string().optional(),
+  food: z.array(FoodItemSchema),
+  total: TotalSchema,
+});
+
+export type NutritionResult = z.infer<typeof NutritionResultSchema>;
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function computeTotals(food: z.infer<typeof FoodItemSchema>[]) {
+  return food.reduce(
+    (acc, f) => ({
+      calories: acc.calories + (f.calories || 0),
+      protein: acc.protein + (f.protein || 0),
+      carbs: acc.carbs + (f.carbs || 0),
+      fat: acc.fat + (f.fat || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+}
 
 export const analyzeMeal = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data }) => {
-    const LOVABLE_API_KEY = process.env.LOVABLE_API_KEY;
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
+    const bytes = base64ToUint8Array(data.imageBase64);
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: data.mimeType });
 
-    const dataUrl = `data:${data.mimeType};base64,${data.imageBase64}`;
+    const form = new FormData();
+    form.append("data", blob, data.filename);
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a precise nutrition analyst. Given a meal photo, identify the dish and estimate its macronutrients. Always respond using the provided tool. Estimate realistic portion sizes from visual cues. If unsure, lower confidence.",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Analyze this meal and return its nutrition." },
-              { type: "image_url", image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "report_nutrition",
-              description: "Report the estimated nutrition for the meal in the image.",
-              parameters: {
-                type: "object",
-                properties: {
-                  dish: { type: "string", description: "Name of the dish" },
-                  description: { type: "string", description: "One sentence description" },
-                  calories: { type: "number" },
-                  protein_g: { type: "number" },
-                  carbs_g: { type: "number" },
-                  fat_g: { type: "number" },
-                  confidence: { type: "string", enum: ["low", "medium", "high"] },
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        name: { type: "string" },
-                        calories: { type: "number" },
-                        protein_g: { type: "number" },
-                        carbs_g: { type: "number" },
-                        fat_g: { type: "number" },
-                      },
-                      required: ["name", "calories", "protein_g", "carbs_g", "fat_g"],
-                      additionalProperties: false,
-                    },
-                  },
-                },
-                required: [
-                  "dish",
-                  "description",
-                  "calories",
-                  "protein_g",
-                  "carbs_g",
-                  "fat_g",
-                  "confidence",
-                  "items",
-                ],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "report_nutrition" } },
-      }),
-    });
+    const res = await fetch(WEBHOOK_URL, { method: "POST", body: form });
 
     if (!res.ok) {
       const text = await res.text();
-      if (res.status === 429) throw new Error("Rate limit reached. Please try again in a moment.");
-      if (res.status === 402)
-        throw new Error("AI credits exhausted. Add credits in Lovable Cloud settings.");
-      throw new Error(`AI gateway error [${res.status}]: ${text.slice(0, 200)}`);
+      throw new Error(`Webhook error [${res.status}]: ${text.slice(0, 300)}`);
     }
 
-    const json = await res.json();
-    const args =
-      json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    if (!args) throw new Error("AI did not return nutrition data.");
+    const raw = await res.json();
 
-    const parsed = NutritionSchema.parse(
-      typeof args === "string" ? JSON.parse(args) : args
-    );
-    return parsed;
+    // Webhook returns: [{ output: { status, food, total } }]
+    // Be tolerant of shape variations.
+    let payload: unknown = raw;
+    if (Array.isArray(payload)) payload = payload[0];
+    if (payload && typeof payload === "object" && "output" in payload) {
+      payload = (payload as { output: unknown }).output;
+    }
+
+    const parsed = NutritionResultSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new Error(
+        `Unexpected webhook response: ${JSON.stringify(raw).slice(0, 300)}`
+      );
+    }
+
+    // Recompute totals if missing/zero to be safe.
+    const total =
+      parsed.data.total.calories > 0
+        ? parsed.data.total
+        : computeTotals(parsed.data.food);
+
+    return { ...parsed.data, total };
   });
