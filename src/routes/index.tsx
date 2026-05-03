@@ -332,6 +332,14 @@ function ResultCard({
           percent={(result.total.fat / totalMacroGrams) * 100}
           colorVar="--fat"
         />
+        {typeof result.total.fibre === "number" && (
+          <MacroBar
+            label="Fibre"
+            grams={result.total.fibre}
+            percent={(result.total.fibre / totalMacroGrams) * 100}
+            colorVar="--carbs"
+          />
+        )}
       </div>
 
       {result.food.length > 0 && (
