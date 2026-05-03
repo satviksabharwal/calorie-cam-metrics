@@ -53,16 +53,46 @@ function Index() {
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
-      toast.error("Please upload an image file");
-      return;
+      // HEIC files sometimes report empty/odd mime types
+      const name = file.name.toLowerCase();
+      if (!name.endsWith(".heic") && !name.endsWith(".heif")) {
+        toast.error("Please upload an image file");
+        return;
+      }
     }
     if (file.size > 10 * 1024 * 1024) {
       toast.error("Image must be under 10MB");
       return;
     }
     setResponse(null);
-    setPreview(URL.createObjectURL(file));
     setLoading(true);
+
+    // Build a browser-renderable preview. HEIC/HEIF need conversion.
+    const lowerName = file.name.toLowerCase();
+    const isHeic =
+      file.type === "image/heic" ||
+      file.type === "image/heif" ||
+      lowerName.endsWith(".heic") ||
+      lowerName.endsWith(".heif");
+
+    try {
+      if (isHeic) {
+        const heic2any = (await import("heic2any")).default;
+        const converted = (await heic2any({
+          blob: file,
+          toType: "image/jpeg",
+          quality: 0.9,
+        })) as Blob | Blob[];
+        const blob = Array.isArray(converted) ? converted[0] : converted;
+        setPreview(URL.createObjectURL(blob));
+      } else {
+        setPreview(URL.createObjectURL(file));
+      }
+    } catch {
+      // Fallback: still try the raw object URL
+      setPreview(URL.createObjectURL(file));
+    }
+
     try {
       const { base64, mimeType } = await fileToBase64(file);
       const data = await analyzeMeal({ data: { imageBase64: base64, mimeType } });
