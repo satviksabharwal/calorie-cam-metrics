@@ -15,13 +15,13 @@ import heroMeal from "@/assets/hero-meal.jpg";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Calories AI — Snap a meal, get instant macros" },
+      { title: "CalorieCam — Snap a meal, get instant macros" },
       {
         name: "description",
         content:
           "Upload a photo of your meal and instantly get protein, carbs, fat and calories powered by AI.",
       },
-      { property: "og:title", content: "Calories AI — Snap a meal, get instant macros" },
+      { property: "og:title", content: "CalorieCam — Snap a meal, get instant macros" },
       {
         property: "og:description",
         content: "Instant AI nutrition analytics from any meal photo.",
@@ -114,7 +114,7 @@ function Index() {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[image:var(--gradient-hero)] shadow-[var(--shadow-soft)]">
             <Utensils className="h-5 w-5 text-primary-foreground" />
           </div>
-          <span className="text-lg font-semibold tracking-tight">Calories AI</span>
+          <span className="text-lg font-semibold tracking-tight">CalorieCam</span>
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground sm:flex">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
