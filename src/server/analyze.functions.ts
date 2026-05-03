@@ -70,26 +70,33 @@ export const analyzeMeal = createServerFn({ method: "POST" })
 
     const raw = await res.json();
 
-    // Webhook returns: [{ output: { status, food, total } }]
-    // Be tolerant of shape variations.
-    let payload: unknown = raw;
-    if (Array.isArray(payload)) payload = payload[0];
-    if (payload && typeof payload === "object" && "output" in payload) {
-      payload = (payload as { output: unknown }).output;
+    // Webhook returns: [{ output: { status, food, total } }, ...]
+    // Merge all outputs into one result.
+    const items: unknown[] = Array.isArray(raw) ? raw : [raw];
+    const outputs = items.map((it) =>
+      it && typeof it === "object" && "output" in it
+        ? (it as { output: unknown }).output
+        : it
+    );
+
+    const allFood: z.infer<typeof FoodItemSchema>[] = [];
+    const statuses: string[] = [];
+    for (const o of outputs) {
+      const parsed = NutritionResultSchema.safeParse(o);
+      if (!parsed.success) {
+        throw new Error(
+          `Unexpected webhook response: ${JSON.stringify(raw).slice(0, 300)}`
+        );
+      }
+      allFood.push(...parsed.data.food);
+      if (parsed.data.status && parsed.data.status.trim().length > 0) {
+        statuses.push(parsed.data.status);
+      }
     }
 
-    const parsed = NutritionResultSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new Error(
-        `Unexpected webhook response: ${JSON.stringify(raw).slice(0, 300)}`
-      );
-    }
-
-    // Recompute totals if missing/zero to be safe.
-    const total =
-      parsed.data.total.calories > 0
-        ? parsed.data.total
-        : computeTotals(parsed.data.food);
-
-    return { ...parsed.data, total };
+    return {
+      status: statuses.join("\n\n"),
+      food: allFood,
+      total: computeTotals(allFood),
+    };
   });
