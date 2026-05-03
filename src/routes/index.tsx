@@ -136,8 +136,8 @@ function Index() {
               </span>
             </h1>
             <p className="max-w-md text-base text-muted-foreground sm:text-lg">
-              Upload a photo and get an instant breakdown of protein, carbs, fat
-              and calories — no logging, no scales, no guesswork.
+              Upload a photo and get an instant breakdown of protein, carbs, fat,
+              fibre and calories — no logging, no scales, no guesswork.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
