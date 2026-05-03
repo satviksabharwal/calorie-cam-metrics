@@ -62,6 +62,9 @@
 }
 
 :root {
+  --color-protein: var(--protein);
+  --color-carbs: var(--carbs);
+  --color-fat: var(--fat);
   --radius: 1rem;
   --background: oklch(0.985 0.01 95);
   --foreground: oklch(0.20 0.04 150);
