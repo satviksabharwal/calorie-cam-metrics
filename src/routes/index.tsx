@@ -189,8 +189,10 @@ function Index() {
                         <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
                           {result.food.length} item{result.food.length === 1 ? "" : "s"} detected
                         </h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Estimated nutrition for your meal.
+                        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                          {result.status && result.status.trim().length > 0
+                            ? result.status
+                            : "Estimated nutrition for your meal."}
                         </p>
                       </div>
 
