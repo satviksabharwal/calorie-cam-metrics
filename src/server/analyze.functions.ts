@@ -33,6 +33,10 @@ export const NutritionResultSchema = z.object({
 
 export type NutritionResult = z.infer<typeof NutritionResultSchema>;
 
+export type AnalyzeResponse = {
+  results: NutritionResult[];
+};
+
 function base64ToUint8Array(base64: string): Uint8Array {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -71,7 +75,7 @@ export const analyzeMeal = createServerFn({ method: "POST" })
     const raw = await res.json();
 
     // Webhook returns: [{ output: { status, food, total } }, ...]
-    // Merge all outputs into one result.
+    // Keep each output as a separate analysis.
     const items: unknown[] = Array.isArray(raw) ? raw : [raw];
     const outputs = items.map((it) =>
       it && typeof it === "object" && "output" in it
@@ -79,8 +83,7 @@ export const analyzeMeal = createServerFn({ method: "POST" })
         : it
     );
 
-    const allFood: z.infer<typeof FoodItemSchema>[] = [];
-    const statuses: string[] = [];
+    const results: NutritionResult[] = [];
     for (const o of outputs) {
       const parsed = NutritionResultSchema.safeParse(o);
       if (!parsed.success) {
@@ -88,15 +91,12 @@ export const analyzeMeal = createServerFn({ method: "POST" })
           `Unexpected webhook response: ${JSON.stringify(raw).slice(0, 300)}`
         );
       }
-      allFood.push(...parsed.data.food);
-      if (parsed.data.status && parsed.data.status.trim().length > 0) {
-        statuses.push(parsed.data.status);
-      }
+      results.push({
+        status: parsed.data.status,
+        food: parsed.data.food,
+        total: parsed.data.total ?? computeTotals(parsed.data.food),
+      });
     }
 
-    return {
-      status: statuses.join("\n\n"),
-      food: allFood,
-      total: computeTotals(allFood),
-    };
+    return { results } satisfies AnalyzeResponse;
   });
