@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-const WEBHOOK_URL = "https://satviksabharwal.app.n8n.cloud/webhook-test/meal-ai";
+const WEBHOOK_URL = "https://satviksabharwal.app.n8n.cloud/webhook/meal-ai";
 
 const InputSchema = z.object({
   imageBase64: z.string().min(100).max(15_000_000),
