@@ -56,7 +56,7 @@ export const analyzeMeal = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data }) => {
     const bytes = base64ToUint8Array(data.imageBase64);
-    const blob = new Blob([bytes], { type: data.mimeType });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: data.mimeType });
 
     const form = new FormData();
     form.append("data", blob, data.filename);
