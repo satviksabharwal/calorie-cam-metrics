@@ -254,7 +254,7 @@ function Index() {
             {
               icon: Zap,
               title: "Macros in seconds",
-              body: "Protein, carbs, fat and calories instantly.",
+              body: "Protein, carbs, fat, fibre and calories instantly.",
             },
           ].map(({ icon: Icon, title, body }) => (
             <div
