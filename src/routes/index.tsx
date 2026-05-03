@@ -71,7 +71,7 @@ function Index() {
   };
 
   const totalMacroGrams = result
-    ? result.protein_g + result.carbs_g + result.fat_g
+    ? result.total.protein + result.total.carbs + result.total.fat
     : 0;
 
   return (
@@ -184,58 +184,65 @@ function Index() {
                     <div className="space-y-6">
                       <div>
                         <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                          Detected dish
+                          Meal analysis
                         </p>
                         <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-                          {result.dish}
+                          {result.food.length} item{result.food.length === 1 ? "" : "s"} detected
                         </h2>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {result.description}
+                          Estimated nutrition for your meal.
                         </p>
                       </div>
 
                       <div className="flex items-end gap-2">
                         <span className="text-5xl font-bold tabular-nums text-foreground">
-                          {Math.round(result.calories)}
+                          {Math.round(result.total.calories)}
                         </span>
                         <span className="pb-1.5 text-sm text-muted-foreground">
-                          kcal · confidence: {result.confidence}
+                          kcal total
                         </span>
                       </div>
 
                       <div className="space-y-4">
                         <MacroBar
                           label="Protein"
-                          grams={result.protein_g}
-                          percent={(result.protein_g / totalMacroGrams) * 100}
+                          grams={result.total.protein}
+                          percent={(result.total.protein / totalMacroGrams) * 100}
                           colorVar="--protein"
                         />
                         <MacroBar
                           label="Carbs"
-                          grams={result.carbs_g}
-                          percent={(result.carbs_g / totalMacroGrams) * 100}
+                          grams={result.total.carbs}
+                          percent={(result.total.carbs / totalMacroGrams) * 100}
                           colorVar="--carbs"
                         />
                         <MacroBar
                           label="Fat"
-                          grams={result.fat_g}
-                          percent={(result.fat_g / totalMacroGrams) * 100}
+                          grams={result.total.fat}
+                          percent={(result.total.fat / totalMacroGrams) * 100}
                           colorVar="--fat"
                         />
                       </div>
 
-                      {result.items.length > 0 && (
+                      {result.food.length > 0 && (
                         <div className="border-t border-border pt-4">
                           <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
                             Items detected
                           </p>
                           <ul className="space-y-1.5">
-                            {result.items.map((it, i) => (
+                            {result.food.map((it, i: number) => (
                               <li
                                 key={i}
                                 className="flex justify-between text-sm text-foreground"
                               >
-                                <span>{it.name}</span>
+                                <span>
+                                  {it.name}
+                                  {it.quantity ? (
+                                    <span className="ml-1 text-muted-foreground">
+                                      · {it.quantity}
+                                    </span>
+                                  ) : null}
+                                </span>
                                 <span className="tabular-nums text-muted-foreground">
                                   {Math.round(it.calories)} kcal
                                 </span>
