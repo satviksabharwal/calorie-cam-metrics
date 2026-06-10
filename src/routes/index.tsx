@@ -1,13 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { Camera, Loader2, Sparkles, Upload, Utensils, Zap } from "lucide-react";
+import { Camera, History, Loader2, LogOut, Sparkles, Upload, Utensils, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MacroBar } from "@/components/MacroBar";
-import {
-  analyzeMeal,
-  type AnalyzeResponse,
-  type NutritionResult,
-} from "@/server/analyze.functions";
+import { ResultCard } from "@/components/ResultCard";
+import { RequireAuth } from "@/components/RequireAuth";
+import { signOut } from "@/hooks/useAuth";
+import { analyzeMeal } from "@/lib/api";
+import { prepareImageForUpload } from "@/lib/image";
+import type { NutritionResult } from "@/lib/nutrition";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import heroMeal from "@/assets/hero-meal.jpg";
@@ -28,26 +28,17 @@ export const Route = createFileRoute("/")({
       },
     ],
   }),
-  component: Index,
+  component: () => (
+    <RequireAuth>
+      <Index />
+    </RequireAuth>
+  ),
 });
-
-function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? "";
-      resolve({ base64, mimeType: file.type || "image/jpeg" });
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 function Index() {
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [response, setResponse] = useState<AnalyzeResponse | null>(null);
+  const [result, setResult] = useState<NutritionResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
@@ -60,51 +51,33 @@ function Index() {
         return;
       }
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Image must be under 10MB");
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("Image must be under 20MB");
       return;
     }
-    setResponse(null);
+    setResult(null);
     setLoading(true);
 
-    // Build a browser-renderable preview. HEIC/HEIF need conversion.
-    const lowerName = file.name.toLowerCase();
-    const isHeic =
-      file.type === "image/heic" ||
-      file.type === "image/heif" ||
-      lowerName.endsWith(".heic") ||
-      lowerName.endsWith(".heif");
-
     try {
-      if (isHeic) {
-        const heic2any = (await import("heic2any")).default;
-        const converted = (await heic2any({
-          blob: file,
-          toType: "image/jpeg",
-          quality: 0.9,
-        })) as Blob | Blob[];
-        const blob = Array.isArray(converted) ? converted[0] : converted;
-        setPreview(URL.createObjectURL(blob));
-      } else {
-        setPreview(URL.createObjectURL(file));
+      // Converts HEIC, downscales to 1568px JPEG — same blob feeds preview + API.
+      const { blob, base64, mimeType } = await prepareImageForUpload(file);
+      setPreview(URL.createObjectURL(blob));
+
+      const data = await analyzeMeal({
+        imageBase64: base64,
+        mimeType,
+        filename: file.name || "meal.jpg",
+      });
+      setResult(data.meal.nutrition);
+      if (data.cached) {
+        toast.info("Same photo analyzed before — showing saved result");
       }
-    } catch {
-      // Fallback: still try the raw object URL
-      setPreview(URL.createObjectURL(file));
-    }
-
-    try {
-      const { base64, mimeType } = await fileToBase64(file);
-      const data = await analyzeMeal({ data: { imageBase64: base64, mimeType } });
-      setResponse(data);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to analyze");
     } finally {
       setLoading(false);
     }
   };
-
-  const results = response?.results ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -116,9 +89,16 @@ function Index() {
           </div>
           <span className="text-lg font-semibold tracking-tight">CalorieCam</span>
         </div>
-        <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground sm:flex">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Powered by Lovable AI
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="rounded-full">
+            <Link to="/history">
+              <History className="mr-1.5 h-4 w-4" />
+              History
+            </Link>
+          </Button>
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => signOut()}>
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
@@ -136,8 +116,8 @@ function Index() {
               </span>
             </h1>
             <p className="max-w-md text-base text-muted-foreground sm:text-lg">
-              Upload a photo and get an instant breakdown of protein, carbs, fat,
-              fibre and calories — no logging, no scales, no guesswork.
+              Upload a photo and get an instant breakdown of protein, carbs, fat, fibre and calories
+              — no logging, no scales, no guesswork.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button
@@ -190,39 +170,24 @@ function Index() {
         </section>
 
         <section className="mt-4">
-          {(preview || loading || results.length > 0) && (
+          {(preview || loading || result) && (
             <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-[var(--shadow-card)]">
               <div className="grid gap-0 md:grid-cols-2">
                 <div className="relative aspect-square bg-muted md:aspect-auto">
                   {preview && (
-                    <img
-                      src={preview}
-                      alt="Your meal"
-                      className="h-full w-full object-cover"
-                    />
+                    <img src={preview} alt="Your meal" className="h-full w-full object-cover" />
                   )}
                   {loading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/70 backdrop-blur-sm">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <p className="text-sm font-medium text-foreground">
-                        Analyzing your meal…
-                      </p>
+                      <p className="text-sm font-medium text-foreground">Analyzing your meal…</p>
                     </div>
                   )}
                 </div>
 
                 <div className="p-6 md:p-8">
-                  {results.length > 0 ? (
-                    <div className="space-y-8">
-                      {results.map((result, idx) => (
-                        <ResultCard
-                          key={idx}
-                          result={result}
-                          index={idx}
-                          total={results.length}
-                        />
-                      ))}
-                    </div>
+                  {result ? (
+                    <ResultCard result={result} />
                   ) : (
                     <div className="flex h-full min-h-[260px] flex-col items-center justify-center text-center text-muted-foreground">
                       <Sparkles className="mb-3 h-8 w-8 text-primary" />
@@ -257,10 +222,7 @@ function Index() {
               body: "Protein, carbs, fat, fibre and calories instantly.",
             },
           ].map(({ icon: Icon, title, body }) => (
-            <div
-              key={title}
-              className="rounded-2xl border border-border bg-card p-5"
-            >
+            <div key={title} className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
                 <Icon className="h-5 w-5 text-primary" />
               </div>
@@ -274,101 +236,6 @@ function Index() {
       <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
         Estimates are approximate. Use as guidance, not medical advice.
       </footer>
-    </div>
-  );
-}
-
-function ResultCard({
-  result,
-  index,
-  total,
-}: {
-  result: NutritionResult;
-  index: number;
-  total: number;
-}) {
-  const totalMacroGrams =
-    result.total.protein + result.total.carbs + result.total.fat || 1;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">
-          {total > 1 ? `Analysis ${index + 1} of ${total}` : "Meal analysis"}
-        </p>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-          {result.food.length} item{result.food.length === 1 ? "" : "s"} detected
-        </h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          {result.status && result.status.trim().length > 0
-            ? result.status
-            : "Estimated nutrition for your meal."}
-        </p>
-      </div>
-
-      <div className="flex items-end gap-2">
-        <span className="text-5xl font-bold tabular-nums text-foreground">
-          {Math.round(result.total.calories)}
-        </span>
-        <span className="pb-1.5 text-sm text-muted-foreground">kcal total</span>
-      </div>
-
-      <div className="space-y-4">
-        <MacroBar
-          label="Protein"
-          grams={result.total.protein}
-          percent={(result.total.protein / totalMacroGrams) * 100}
-          colorVar="--protein"
-        />
-        <MacroBar
-          label="Carbs"
-          grams={result.total.carbs}
-          percent={(result.total.carbs / totalMacroGrams) * 100}
-          colorVar="--carbs"
-        />
-        <MacroBar
-          label="Fat"
-          grams={result.total.fat}
-          percent={(result.total.fat / totalMacroGrams) * 100}
-          colorVar="--fat"
-        />
-        {typeof result.total.fibre === "number" && (
-          <MacroBar
-            label="Fibre"
-            grams={result.total.fibre}
-            percent={(result.total.fibre / totalMacroGrams) * 100}
-            colorVar="--carbs"
-          />
-        )}
-      </div>
-
-      {result.food.length > 0 && (
-        <div className="border-t border-border pt-4">
-          <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
-            Items detected
-          </p>
-          <ul className="space-y-1.5">
-            {result.food.map((it, i) => (
-              <li
-                key={i}
-                className="flex justify-between text-sm text-foreground"
-              >
-                <span>
-                  {it.name}
-                  {it.quantity ? (
-                    <span className="ml-1 text-muted-foreground">
-                      · {it.quantity}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="tabular-nums text-muted-foreground">
-                  {Math.round(it.calories)} kcal
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }
