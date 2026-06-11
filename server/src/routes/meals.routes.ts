@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
+import { validateCsrfToken } from "../middleware/csrf.js";
 import { analyzeMeal, dailyTotals, recentMeals } from "../controllers/meals.controller.js";
 
 export const mealsRouter = Router();
 
 mealsRouter.use(requireAuth);
 
-mealsRouter.post("/analyze", analyzeMeal);
+// CSRF validation on state-changing requests (POST, PUT, DELETE)
+mealsRouter.post("/analyze", validateCsrfToken, analyzeMeal);
+
+// GET requests don't need CSRF validation (safe methods)
 mealsRouter.get("/recent", recentMeals);
 mealsRouter.get("/daily-totals", dailyTotals);

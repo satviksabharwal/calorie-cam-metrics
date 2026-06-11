@@ -3,18 +3,40 @@ import type { DailyTotal, Meal } from "@/lib/nutrition";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+function getCsrfToken(): string | null {
+  // Extract CSRF token from cookies
+  const name = "csrf-token=";
+  const decodedCookie = decodeURIComponent(document.cookie);
+  const cookieArray = decodedCookie.split(";");
+  for (let cookie of cookieArray) {
+    cookie = cookie.trim();
+    if (cookie.indexOf(name) === 0) {
+      return cookie.substring(name.length);
+    }
+  }
+  return null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Not signed in");
+  const method = init?.method?.toUpperCase() || "GET";
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...init?.headers,
+  };
+
+  // Add CSRF token to state-changing requests (POST, PUT, DELETE, PATCH)
+  const needsCsrf = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
+  if (needsCsrf) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken) {
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+  }
 
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...init?.headers,
-    },
+    credentials: "include", // ✅ Send HTTP-only auth + CSRF cookies
+    headers,
   });
 
   if (!res.ok) {

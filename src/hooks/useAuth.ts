@@ -23,6 +23,18 @@ export function useAuth() {
   return { session, loading, user: session?.user ?? null };
 }
 
-export function signOut() {
-  return supabase.auth.signOut();
+export async function signOut() {
+  // Clear Supabase session
+  await supabase.auth.signOut();
+
+  // Clear HTTP-only cookie via backend
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+  try {
+    await fetch(`${apiUrl}/api/auth/clear-session`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.error("Failed to clear session cookie:", err);
+  }
 }

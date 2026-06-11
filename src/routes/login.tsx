@@ -32,12 +32,14 @@ function Login() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      let session;
       if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
+        session = data.session;
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
@@ -46,7 +48,24 @@ function Login() {
           toast.success("Check your email to confirm your account");
           return;
         }
+        session = data.session;
       }
+
+      // Set HTTP-only cookie + CSRF token via backend endpoint
+      if (session?.access_token) {
+        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+        const response = await fetch(`${apiUrl}/api/auth/set-session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include", // Send/receive cookies
+          body: JSON.stringify({ token: session.access_token }),
+        });
+        if (!response.ok) {
+          throw new Error("Failed to set session");
+        }
+        // CSRF token is now in cookies (csrf-token) — backend validates it
+      }
+
       navigate({ to: "/" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Authentication failed");
@@ -111,7 +130,7 @@ function Login() {
           <Button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-full bg-[image:var(--gradient-hero)] text-primary-foreground shadow-[var(--shadow-soft)] hover:opacity-90"
+            className="w-full rounded-full bg-(image:--gradient-hero) text-primary-foreground shadow-(--shadow-soft) hover:opacity-90"
           >
             {submitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
