@@ -45,6 +45,7 @@
 ## 2. Frontend Architecture (Cloudflare Workers)
 
 ### Page Structure
+
 ```
 src/routes/
 ├─ index.tsx           # Analyze page — photo upload/camera, show results
@@ -53,6 +54,7 @@ src/routes/
 ```
 
 ### Key Components
+
 ```
 src/components/
 ├─ RequireAuth.tsx     # Guard: redirects to /login if not authenticated
@@ -62,6 +64,7 @@ src/components/
 ```
 
 ### Authentication Flow (Frontend)
+
 ```
 1. User enters email/password on /login
 2. Supabase.auth.signUp() or .signIn() → returns session with access_token
@@ -71,6 +74,7 @@ src/components/
 ```
 
 ### API Integration (Frontend)
+
 ```
 api.ts (fetch wrapper)
 ├─ Gets session from Supabase SDK → access_token
@@ -80,6 +84,7 @@ api.ts (fetch wrapper)
 ```
 
 ### Image Processing (Frontend)
+
 ```
 1. User selects photo (camera capture or file upload)
 2. If HEIC format → heic2any converts to JPEG
@@ -93,6 +98,7 @@ api.ts (fetch wrapper)
 ## 3. Backend Architecture (Render)
 
 ### Express Server Setup
+
 ```
 server/src/
 ├─ index.ts            # Express app initialization
@@ -106,6 +112,7 @@ server/src/
 ### API Endpoints
 
 #### `POST /api/meals/analyze`
+
 ```
 Input:  { imageBase64: string, mimeType: string }
 Process:
@@ -123,6 +130,7 @@ Output: { meal: Meal, cached: boolean }
 ```
 
 #### `GET /api/meals/recent`
+
 ```
 Logic:
   1. Fetch last 7 days of meals for logged-in user
@@ -132,6 +140,7 @@ Output: { meals: Meal[] }
 ```
 
 #### `GET /api/meals/daily-totals?days=90`
+
 ```
 Logic:
   1. Fetch meals older than 7 days (for this user)
@@ -141,6 +150,7 @@ Output: { days: DailyTotal[] }
 ```
 
 #### `GET /health`
+
 ```
 Purpose: UptimeRobot ping target (keeps free dyno warm)
 Output: { status: "ok", uptime: "..." }
@@ -149,6 +159,7 @@ Output: { status: "ok", uptime: "..." }
 ### Services (Business Logic)
 
 #### `meals.service.ts`
+
 ```
 ├─ analyzeMeal()         # Dedupe check + Gemini call + storage + DB insert
 ├─ getRecentMeals()      # DB query + signed URLs
@@ -157,6 +168,7 @@ Output: { status: "ok", uptime: "..." }
 ```
 
 #### `gemini.service.ts`
+
 ```
 ├─ analyzeMealPhoto()    # Sends base64 image to Gemini 2.5 Flash
 │                         │ (vision model with structured JSON mode)
@@ -165,6 +177,7 @@ Output: { status: "ok", uptime: "..." }
 ```
 
 #### `storage.service.ts`
+
 ```
 ├─ uploadMealImage()     # Upload to private bucket, return storage path
 ├─ signUrl()             # Generate signed URL (1 hour expiry)
@@ -175,6 +188,7 @@ Output: { status: "ok", uptime: "..." }
 ### Jobs (Scheduled Tasks)
 
 #### `cleanup.job.ts` (runs daily at 00:05 UTC)
+
 ```
 1. Find all meals where created_at < 7 days ago AND image_path is not null
 2. Delete from Supabase Storage
@@ -187,6 +201,7 @@ Output: { status: "ok", uptime: "..." }
 ## 4. Authentication Flow (Complete)
 
 ### Sign Up
+
 ```
 Browser          Supabase           Backend
   │                │                   │
@@ -200,6 +215,7 @@ Browser          Supabase           Backend
 ```
 
 ### API Request with Auth
+
 ```
 Browser                      Backend              Supabase
   │                            │                     │
@@ -214,6 +230,7 @@ Browser                      Backend              Supabase
 ```
 
 ### Token Lifecycle
+
 ```
 Generated:  Supabase creates JWT on login
 Stored:     Browser localStorage (Supabase SDK)
@@ -230,6 +247,7 @@ Logout:     supabase.auth.signOut() → clears session + localStorage
 ### Postgres Schema
 
 #### `users` (managed by Supabase Auth)
+
 ```sql
 id              uuid (primary key)
 email           text (unique)
@@ -238,6 +256,7 @@ created_at      timestamptz
 ```
 
 #### `meals` (custom table)
+
 ```sql
 id              uuid (primary key) — default: gen_random_uuid()
 user_id         uuid (FK → auth.users) — cascade delete
@@ -253,39 +272,39 @@ unique (user_id, image_hash)  — dedupe per user
 
 ```typescript
 interface Meal {
-  id: string
-  userId: string
-  imageHash: string
-  imagePath: string | null
+  id: string;
+  userId: string;
+  imageHash: string;
+  imagePath: string | null;
   nutrition: {
-    status: "success" | "error"
+    status: "success" | "error";
     food?: Array<{
-      name: string
-      calories: number
-      protein: number
-      carbs: number
-      fat: number
-      fibre: number
-    }>
+      name: string;
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      fibre: number;
+    }>;
     total: {
-      calories: number
-      protein: number
-      carbs: number
-      fat: number
-      fibre: number
-    }
-  }
-  createdAt: string
-  imageUrl?: string  // signed URL (generated on fetch)
+      calories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+      fibre: number;
+    };
+  };
+  createdAt: string;
+  imageUrl?: string; // signed URL (generated on fetch)
 }
 
 interface DailyTotal {
-  date: string  // YYYY-MM-DD UTC
-  calories: number
-  protein: number
-  carbs: number
-  fat: number
-  fibre: number
+  date: string; // YYYY-MM-DD UTC
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fibre: number;
 }
 ```
 
@@ -298,7 +317,7 @@ interface DailyTotal {
 ```
 Input:  base64 JPEG image (max ~1.5MB after downscaling)
 Model:  Google Gemini 2.5 Flash (vision + JSON mode)
-Prompt: 
+Prompt:
   "Analyze this meal photo. List each food item with estimated:
    - name (e.g., 'grilled chicken breast')
    - calories
@@ -306,10 +325,10 @@ Prompt:
    - carbs (g)
    - fat (g)
    - fibre (g)
-   
+
    Return ONLY valid JSON: { food: [...], total: {...} }"
 
-Output: 
+Output:
   {
     "food": [
       { "name": "grilled chicken", "calories": 165, "protein": 31, ... },
@@ -320,6 +339,7 @@ Output:
 ```
 
 ### Error Handling
+
 - If image can't be parsed → return `{ status: "error", error: "..." }`
 - If Gemini fails → return cached result or error to user
 - Totals always computed server-side (validation, never trust client)
@@ -350,6 +370,7 @@ Day 7+ (after 00:05 UTC):
 ```
 
 ### Storage Path Structure
+
 ```
 Bucket:  meal-images (private)
 Path:    <user_id>/<meal_id>.jpg
@@ -370,8 +391,8 @@ Git push → GitHub
            ↓
         pnpm wrangler deploy    (uploads to Cloudflare)
            ↓
-    https://tanstack-start-app.calorie-cam.workers.dev
-    
+    https://app.calorie-cam.workers.dev
+
 Environment:
   ├─ VITE_SUPABASE_URL         (public)
   ├─ VITE_SUPABASE_PUBLISHABLE_KEY (public)
@@ -390,7 +411,7 @@ Git push → GitHub
      Start:  npm start (runs dist/index.js)
            ↓
     https://calorie-cam-metrics.onrender.com
-    
+
 Environment:
   ├─ GEMINI_API_KEY
   ├─ SUPABASE_URL
@@ -398,7 +419,7 @@ Environment:
   ├─ SUPABASE_STORAGE_BUCKET
   ├─ ALLOWED_ORIGINS            (Cloudflare domain)
   └─ PORT                        (3001)
-    
+
 Keep-Alive:
   ├─ UptimeRobot pings /health every 5 minutes
   └─ Prevents free dyno from sleeping
@@ -420,24 +441,28 @@ Managed cloud Postgres
 ## 9. Security Model
 
 ### Authentication
+
 - ✅ Supabase Auth handles password hashing, JWT generation
 - ✅ Bearer token sent on every API request
 - ✅ Backend validates token with Supabase (not local JWT parsing)
 - ✅ Tokens expire naturally (~1 hour)
 
 ### Authorization
+
 - ✅ RLS on meals table — users can only query their own rows
 - ✅ All inserts go through backend (service role key)
 - ✅ Backend attaches user ID from validated token
 - ✅ No client-side user ID spoofing possible
 
 ### Data Privacy
+
 - ✅ Service role key lives only in Render (never in frontend)
 - ✅ Gemini API key in backend env only
 - ✅ Images stored in private bucket — signed URLs only, no public access
 - ✅ Image cleanup removes storage after 7 days (nutrition retained)
 
 ### API Security
+
 - ✅ CORS: only Cloudflare domain in ALLOWED_ORIGINS
 - ✅ All routes require valid Bearer token
 - ✅ Input validation with Zod (image format, size, schema)
@@ -449,15 +474,16 @@ Managed cloud Postgres
 
 ### Bottlenecks & Mitigations
 
-| Component | Issue | Mitigation |
-|-----------|-------|-----------|
-| **Gemini API** | ~2-3s per call | Image deduplication (cache hits return instant) |
-| **Storage** | Upload latency | Parallel upload after Gemini response |
-| **Postgres** | User query scale | Indexes on (user_id, created_at) |
-| **Signed URLs** | TTL refresh | Minted server-side on every fetch |
-| **Free Render tier** | Cold starts | UptimeRobot pings keep dyno warm |
+| Component            | Issue            | Mitigation                                      |
+| -------------------- | ---------------- | ----------------------------------------------- |
+| **Gemini API**       | ~2-3s per call   | Image deduplication (cache hits return instant) |
+| **Storage**          | Upload latency   | Parallel upload after Gemini response           |
+| **Postgres**         | User query scale | Indexes on (user_id, created_at)                |
+| **Signed URLs**      | TTL refresh      | Minted server-side on every fetch               |
+| **Free Render tier** | Cold starts      | UptimeRobot pings keep dyno warm                |
 
 ### Cost Estimate
+
 - **Gemini**: ~500-1500 tokens per image + ~300 tokens output = <$0.01/photo
 - **Supabase**: Generous free tier covers 100+ active users
 - **Cloudflare**: Free tier includes Workers + unlimited requests
@@ -467,52 +493,57 @@ Managed cloud Postgres
 
 ## 11. Tech Stack Summary
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Frontend** | React 19 | UI framework |
-| | TanStack Start | Full-stack SSR |
-| | TanStack Router | File-based routing |
-| | Vite | Build tool + dev server |
-| | Tailwind CSS v4 | Styling |
-| | TypeScript | Type safety |
-| **Backend** | Node.js | Runtime |
-| | Express | HTTP server |
-| | TypeScript | Type safety |
-| | Zod | Schema validation |
-| **AI** | Google Gemini 2.5 Flash | Vision + structured JSON |
-| **Auth** | Supabase Auth | Email/password + JWT |
-| **Database** | Supabase Postgres | Relational data + RLS |
-| **Storage** | Supabase Storage | Private image bucket |
-| **Hosting** | Cloudflare Workers | Frontend SSR |
-| | Render | Backend API |
-| **Utilities** | node-cron | Scheduled cleanup |
-| | cors | Cross-origin requests |
+| Layer         | Technology              | Purpose                  |
+| ------------- | ----------------------- | ------------------------ |
+| **Frontend**  | React 19                | UI framework             |
+|               | TanStack Start          | Full-stack SSR           |
+|               | TanStack Router         | File-based routing       |
+|               | Vite                    | Build tool + dev server  |
+|               | Tailwind CSS v4         | Styling                  |
+|               | TypeScript              | Type safety              |
+| **Backend**   | Node.js                 | Runtime                  |
+|               | Express                 | HTTP server              |
+|               | TypeScript              | Type safety              |
+|               | Zod                     | Schema validation        |
+| **AI**        | Google Gemini 2.5 Flash | Vision + structured JSON |
+| **Auth**      | Supabase Auth           | Email/password + JWT     |
+| **Database**  | Supabase Postgres       | Relational data + RLS    |
+| **Storage**   | Supabase Storage        | Private image bucket     |
+| **Hosting**   | Cloudflare Workers      | Frontend SSR             |
+|               | Render                  | Backend API              |
+| **Utilities** | node-cron               | Scheduled cleanup        |
+|               | cors                    | Cross-origin requests    |
 
 ---
 
 ## 12. Key Design Decisions
 
 ### Why Supabase Auth instead of custom?
+
 - Pre-built email verification, password reset, multi-device sessions
 - JWT tokens work seamlessly with bearer pattern
 - Offloads security burden to a specialized provider
 
 ### Why Gemini 2.5 Flash?
+
 - Vision + structured JSON mode (no hallucination on nutrition data)
 - Fast inference (~2-3 seconds)
 - Cost-effective (~<$0.01 per meal)
 
 ### Why server-side token validation instead of local JWT parsing?
+
 - Tokens can be revoked server-side without waiting for expiry
 - No need to manage Supabase's JWKS locally
 - Simple `getUser()` call validates + retrieves user in one trip
 
 ### Why image deduplication by hash?
+
 - Users often re-upload same meal (avoids redundant Gemini calls)
 - Per-user dedupe prevents one user's upload helping another
 - SHA-256 collision risk negligible at this scale
 
 ### Why 7-day image retention?
+
 - Users can review recent photos in history
 - Storage costs minimal for reasonable user volume
 - Older meals have aggregate totals — individual photos not needed
@@ -529,4 +560,3 @@ Managed cloud Postgres
 6. **Advanced filters**: Search by date, food type, macro ranges
 7. **Batch analysis**: Upload multiple photos in one go
 8. **Alternative AI models**: Fallback providers (Claude Vision, etc.)
-
