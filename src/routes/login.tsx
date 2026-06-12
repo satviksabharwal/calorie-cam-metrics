@@ -58,7 +58,10 @@ function Login() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include", // Send/receive cookies
-          body: JSON.stringify({ token: session.access_token }),
+          body: JSON.stringify({
+            token: session.access_token,
+            refreshToken: session.refresh_token,
+          }),
         });
         if (!response.ok) {
           throw new Error("Failed to set session");

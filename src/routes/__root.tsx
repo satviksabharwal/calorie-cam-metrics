@@ -29,13 +29,13 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
+      { title: "Calorie Calculator" },
       {
         name: "description",
         content: "CalorieCam analyzes meal photos to provide instant macronutrient breakdowns.",
       },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
+      { property: "og:title", content: "Calorie Calculator" },
       {
         property: "og:description",
         content: "CalorieCam analyzes meal photos to provide instant macronutrient breakdowns.",
@@ -43,7 +43,7 @@ export const Route = createRootRoute({
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lovable App" },
+      { name: "twitter:title", content: "Calorie Calculator" },
       {
         name: "twitter:description",
         content: "CalorieCam analyzes meal photos to provide instant macronutrient breakdowns.",
@@ -63,6 +63,11 @@ export const Route = createRootRoute({
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      {
+        rel: "icon",
+        href: "/favicon.svg",
+        type: "image/svg+xml",
       },
     ],
   }),
