@@ -17,10 +17,12 @@ router.post("/set-session", (req: Request, res: Response) => {
   // Generate CSRF token (32 bytes = 256 bits of entropy)
   const csrfToken = randomBytes(32).toString("hex");
 
+  const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+
   // Set HTTP-only authentication cookie (access token)
   res.cookie("supabase-auth", token, {
     httpOnly: true, // ✅ Blocks JavaScript access (XSS protection)
-    secure: process.env.NODE_ENV === "production", // ✅ HTTPS only in production
+    secure: isProduction, // ✅ HTTPS only in production
     sameSite: "lax", // ✅ CSRF protection via SameSite
     maxAge: 60 * 60 * 1000, // 1 hour (match Supabase token TTL)
     path: "/",
@@ -30,7 +32,7 @@ router.post("/set-session", (req: Request, res: Response) => {
   if (refreshToken) {
     res.cookie("supabase-refresh", refreshToken, {
       httpOnly: true, // ✅ Secure: JS cannot access
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: "/",
@@ -40,7 +42,7 @@ router.post("/set-session", (req: Request, res: Response) => {
   // Set CSRF token cookie (NOT HttpOnly — frontend needs to read it)
   res.cookie("csrf-token", csrfToken, {
     httpOnly: false, // ❌ JS can read (required for CSRF double-submit pattern)
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "lax",
     maxAge: 60 * 60 * 1000, // Same TTL as auth token
     path: "/",
@@ -80,11 +82,12 @@ router.post("/refresh", async (req: Request, res: Response) => {
 
     const newAccessToken = data.session.access_token;
     const newRefreshToken = data.session.refresh_token;
+    const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
 
     // Update the access token cookie
     res.cookie("supabase-auth", newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProduction,
       sameSite: "lax",
       maxAge: 60 * 60 * 1000, // 1 hour
       path: "/",
@@ -94,7 +97,7 @@ router.post("/refresh", async (req: Request, res: Response) => {
     if (newRefreshToken) {
       res.cookie("supabase-refresh", newRefreshToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: isProduction,
         sameSite: "lax",
         maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
         path: "/",
@@ -110,23 +113,25 @@ router.post("/refresh", async (req: Request, res: Response) => {
 // POST /api/auth/clear-session
 // Frontend calls this on sign-out to clear both auth + CSRF cookies
 router.post("/clear-session", (req: Request, res: Response) => {
+  const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+
   res.clearCookie("supabase-auth", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "lax",
     path: "/",
   });
 
   res.clearCookie("supabase-refresh", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "lax",
     path: "/",
   });
 
   res.clearCookie("csrf-token", {
     httpOnly: false,
-    secure: process.env.NODE_ENV === "production",
+    secure: isProduction,
     sameSite: "lax",
     path: "/",
   });
