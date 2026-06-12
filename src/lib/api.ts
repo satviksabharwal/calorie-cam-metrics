@@ -35,12 +35,19 @@ async function refreshAccessToken(): Promise<boolean> {
       });
 
       if (res.ok) {
+        const data = (await res.json()) as { accessToken?: string };
+        // Store new access token if returned
+        if (data.accessToken) {
+          sessionStorage.setItem("access_token", data.accessToken);
+        }
         return true;
       }
       // If refresh fails, user needs to log in again
+      sessionStorage.removeItem("access_token");
       await supabase.auth.signOut();
       return false;
     } catch {
+      sessionStorage.removeItem("access_token");
       return false;
     } finally {
       isRefreshing = false;
@@ -58,6 +65,12 @@ async function request<T>(path: string, init?: RequestInit, retryCount = 0): Pro
     ...init?.headers,
   };
 
+  // Add Authorization header with stored access token (for cross-origin requests)
+  const accessToken = sessionStorage.getItem("access_token");
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+
   // Add CSRF token to state-changing requests (POST, PUT, DELETE, PATCH)
   const needsCsrf = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
   if (needsCsrf) {
@@ -69,7 +82,7 @@ async function request<T>(path: string, init?: RequestInit, retryCount = 0): Pro
 
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    credentials: "include", // ✅ Send HTTP-only auth + CSRF cookies
+    credentials: "include", // ✅ Send HTTP-only refresh token + CSRF cookies
     headers,
   });
 

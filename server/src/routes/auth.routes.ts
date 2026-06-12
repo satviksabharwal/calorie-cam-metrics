@@ -104,7 +104,8 @@ router.post("/refresh", async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ success: true });
+    // Return new access token in response body for frontend to store
+    res.json({ success: true, accessToken: newAccessToken });
   } catch (err) {
     return res.status(401).json({ error: "Token refresh failed" });
   }

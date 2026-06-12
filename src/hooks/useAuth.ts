@@ -24,6 +24,9 @@ export function useAuth() {
 }
 
 export async function signOut() {
+  // Clear stored access token
+  sessionStorage.removeItem("access_token");
+
   // Clear Supabase session
   await supabase.auth.signOut();
 

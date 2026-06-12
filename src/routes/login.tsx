@@ -66,7 +66,8 @@ function Login() {
         if (!response.ok) {
           throw new Error("Failed to set session");
         }
-        // CSRF token is now in cookies (csrf-token) — backend validates it
+        // Store access token in memory for Authorization header
+        sessionStorage.setItem("access_token", session.access_token);
       }
 
       navigate({ to: "/" });
