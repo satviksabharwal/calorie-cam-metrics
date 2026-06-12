@@ -76,6 +76,17 @@ export async function getDailyTotals(userId: string, days: number): Promise<Dail
   return (data ?? []) as DailyTotal[];
 }
 
+export async function countMealsToday(userId: string): Promise<number> {
+  const todayUtc = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const { count, error } = await supabaseAdmin
+    .from("meals")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", `${todayUtc}T00:00:00.000Z`);
+  if (error) throw new AppError(500, `Rate limit check failed: ${error.message}`);
+  return count ?? 0;
+}
+
 export async function getExpiredImages(
   limit: number,
 ): Promise<Pick<MealRow, "id" | "image_path">[]> {

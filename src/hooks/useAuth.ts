@@ -1,22 +1,36 @@
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { fetchAndStoreCsrfToken } from "@/lib/api";
 
-// Session lives in browser localStorage, so auth state is client-only —
-// guard in components (RequireAuth), not in route beforeLoad (SSR).
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.access_token) {
+        sessionStorage.setItem("access_token", data.session.access_token);
+        // Fire-and-forget: CSRF token needed before any mutation, non-blocking here.
+        void fetchAndStoreCsrfToken();
+      }
       setSession(data.session);
       setLoading(false);
     });
+
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (s?.access_token) {
+        sessionStorage.setItem("access_token", s.access_token);
+        // Access token changed (e.g. Supabase auto-refresh) — CSRF token must follow.
+        void fetchAndStoreCsrfToken();
+      } else {
+        sessionStorage.removeItem("access_token");
+        sessionStorage.removeItem("csrf_token");
+      }
       setSession(s);
       setLoading(false);
     });
+
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -24,20 +38,7 @@ export function useAuth() {
 }
 
 export async function signOut() {
-  // Clear stored access token
   sessionStorage.removeItem("access_token");
-
-  // Clear Supabase session
+  sessionStorage.removeItem("csrf_token");
   await supabase.auth.signOut();
-
-  // Clear HTTP-only cookie via backend
-  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
-  try {
-    await fetch(`${apiUrl}/api/auth/clear-session`, {
-      method: "POST",
-      credentials: "include",
-    });
-  } catch (err) {
-    console.error("Failed to clear session cookie:", err);
-  }
 }

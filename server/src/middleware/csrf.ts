@@ -1,45 +1,33 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import { config } from "../config.js";
 
-// CSRF token validation middleware (Double Submit Cookie pattern)
-// Only validates on state-changing requests (POST, PUT, DELETE, PATCH)
-// GET/HEAD/OPTIONS are safe and don't need CSRF tokens
+// Stateless CSRF: HMAC(accessToken, CSRF_SECRET).
+// Tie the CSRF token to the user's specific access token so it can't be
+// reused across sessions or by a different user.
+export function generateCsrfToken(accessToken: string): string {
+  return createHmac("sha256", config.CSRF_SECRET).update(accessToken).digest("hex").slice(0, 32);
+}
+
 export function validateCsrfToken(req: Request, res: Response, next: NextFunction) {
-  const method = req.method.toUpperCase();
-
-  // Safe methods don't need CSRF validation
   const safeMethods = ["GET", "HEAD", "OPTIONS"];
-  if (safeMethods.includes(method)) {
-    return next();
+  if (safeMethods.includes(req.method.toUpperCase())) return next();
+
+  const csrfHeader = req.headers["x-csrf-token"] as string | undefined;
+  const bearerToken = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+
+  if (!csrfHeader || !bearerToken) {
+    return res.status(403).json({ error: "CSRF validation failed" });
   }
 
-  // Extract CSRF token from request
-  const csrfTokenFromHeader =
-    req.headers["x-csrf-token"] || req.headers["csrf-token"];
-  const csrfTokenFromBody = (req.body as Record<string, unknown>)?.csrfToken;
-  const csrfToken = csrfTokenFromHeader || csrfTokenFromBody;
+  const expected = generateCsrfToken(bearerToken);
 
-  if (!csrfToken) {
-    return res.status(403).json({ error: "Missing CSRF token" });
-  }
-
-  // Extract CSRF token from cookie
-  const cookies = req.headers.cookie?.split(";") || [];
-  let csrfTokenFromCookie: string | undefined;
-  for (const cookie of cookies) {
-    const [name, value] = cookie.trim().split("=");
-    if (name === "csrf-token") {
-      csrfTokenFromCookie = decodeURIComponent(value);
-      break;
-    }
-  }
-
-  if (!csrfTokenFromCookie) {
-    return res.status(403).json({ error: "CSRF token not found in cookies" });
-  }
-
-  // Verify tokens match (Double Submit Cookie pattern)
-  if (csrfToken !== csrfTokenFromCookie) {
-    return res.status(403).json({ error: "CSRF token validation failed" });
+  // Timing-safe comparison prevents oracle attacks on the CSRF token
+  if (
+    csrfHeader.length !== expected.length ||
+    !timingSafeEqual(Buffer.from(csrfHeader, "utf-8"), Buffer.from(expected, "utf-8"))
+  ) {
+    return res.status(403).json({ error: "CSRF validation failed" });
   }
 
   next();

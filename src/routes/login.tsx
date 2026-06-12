@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchAndStoreCsrfToken } from "@/lib/api";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -51,23 +52,9 @@ function Login() {
         session = data.session;
       }
 
-      // Set HTTP-only cookie + CSRF token via backend endpoint
       if (session?.access_token) {
-        const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
-        const response = await fetch(`${apiUrl}/api/auth/set-session`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include", // Send/receive cookies
-          body: JSON.stringify({
-            token: session.access_token,
-            refreshToken: session.refresh_token,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error("Failed to set session");
-        }
-        // Store access token in memory for Authorization header
         sessionStorage.setItem("access_token", session.access_token);
+        await fetchAndStoreCsrfToken();
       }
 
       navigate({ to: "/" });

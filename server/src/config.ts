@@ -6,6 +6,8 @@ const EnvSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(10),
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default("meal-images"),
+  // Generate with: openssl rand -hex 32
+  CSRF_SECRET: z.string().min(32),
   ALLOWED_ORIGINS: z.string().default("http://localhost:5173,http://localhost:8080"),
   PORT: z.coerce.number().int().positive().default(3001),
 });

@@ -3,6 +3,7 @@ import { AnalyzeInputSchema } from "../schemas/nutrition.js";
 import { sha256Hex } from "../lib/hash.js";
 import { analyzeWithGemini } from "../services/gemini.service.js";
 import {
+  countMealsToday,
   findMealByHash,
   getDailyTotals,
   getRecentMeals,
@@ -34,13 +35,21 @@ export async function analyzeMeal(req: Request, res: Response) {
   const buffer = Buffer.from(imageBase64, "base64");
   const imageHash = sha256Hex(buffer);
 
-  // Dedupe: same user + same image bytes → stored result, no Claude call.
+  // Dedupe: same user + same image bytes → stored result, no Gemini call.
   const existing = await findMealByHash(userId, imageHash);
   if (existing) {
     return res.json({ meal: await toMealResponse(existing), cached: true });
   }
 
-  // Claude first — a model failure must not leave an orphaned storage object.
+  // Rate limit: 10 new Gemini analyses per user per day (cached hits don't count).
+  const mealsToday = await countMealsToday(userId);
+  if (mealsToday >= 10) {
+    return res
+      .status(429)
+      .json({ error: "Daily limit of 10 meal analyses reached. Try again tomorrow." });
+  }
+
+  // Gemini first — a model failure must not leave an orphaned storage object.
   const nutrition = await analyzeWithGemini({ imageBase64, mimeType });
   const imagePath = await uploadMealImage(userId, imageHash, buffer, mimeType);
 

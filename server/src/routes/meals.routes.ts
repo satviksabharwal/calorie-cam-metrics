@@ -7,9 +7,6 @@ export const mealsRouter = Router();
 
 mealsRouter.use(requireAuth);
 
-// CSRF validation on state-changing requests (POST, PUT, DELETE)
 mealsRouter.post("/analyze", validateCsrfToken, analyzeMeal);
-
-// GET requests don't need CSRF validation (safe methods)
 mealsRouter.get("/recent", recentMeals);
 mealsRouter.get("/daily-totals", dailyTotals);
