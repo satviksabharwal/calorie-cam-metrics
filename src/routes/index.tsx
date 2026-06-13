@@ -181,9 +181,13 @@ function Index() {
           {(preview || loading || result || notFoodMessage) && (
             <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-(--shadow-card)">
               <div className="grid gap-0 md:grid-cols-2">
-                <div className="relative aspect-square bg-muted md:aspect-auto">
+                <div className="relative h-56 bg-muted md:h-full">
                   {preview && (
-                    <img src={preview} alt="Your meal" className="h-full w-full object-cover" />
+                    <img
+                      src={preview}
+                      alt="Your meal"
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
                   )}
                   {loading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/70 backdrop-blur-sm">
