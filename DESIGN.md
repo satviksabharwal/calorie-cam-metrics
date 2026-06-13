@@ -48,8 +48,9 @@
 
 ```
 src/routes/
-├─ index.tsx           # Analyze page — photo upload/camera, show results
-├─ login.tsx           # Auth page — sign up / sign in
+├─ index.tsx           # Analyze page — photo upload, results, greets user by name
+├─ login.tsx           # Auth page — sign up (first/last name) / sign in / reset request
+├─ reset-password.tsx  # Set a new password from a recovery-link session
 └─ history.tsx         # Meal history — last 7 days (detailed), older days (totals only)
 ```
 
@@ -59,27 +60,39 @@ src/routes/
 src/components/
 ├─ RequireAuth.tsx     # Guard: redirects to /login if not authenticated
 ├─ ResultCard.tsx      # Displays single meal analysis (food items + totals)
-├─ MacroBar.tsx        # Visual breakdown of calories/protein/carbs/fat/fibre
-└─ PhotoUpload.tsx     # Camera/file picker, HEIC→JPEG conversion, downscaling
+└─ MacroBar.tsx        # Visual breakdown of calories/protein/carbs/fat/fibre
+
+src/lib/image.ts        # HEIC→JPEG conversion + canvas downscale (used inline
+                        # by the analyze page; a single <input accept="image/*">
+                        # gives a file picker on desktop and camera/library on
+                        # mobile — no desktop-only "Take photo" capture button)
 ```
 
 ### Authentication Flow (Frontend)
 
 ```
-1. User enters email/password on /login
-2. Supabase.auth.signUp() or .signIn() → returns session with access_token
-3. Session stored in browser localStorage (Supabase SDK handles this)
-4. useAuth() hook watches localStorage, sets React state
+1. User enters first/last name (signup) + email/password on /login
+2. supabase.auth.signUp() stores name in user_metadata; .signInWithPassword()
+   for returning users; .resetPasswordForEmail() emails a recovery link
+3. Supabase SDK persists the full session (incl. refresh token) in localStorage
+   → user stays signed in ~30 days, token auto-refreshed transparently
+4. useAuth() mirrors the access_token into sessionStorage and fetches a CSRF
+   token, re-doing both on every Supabase auth state change (refresh/sign-out)
 5. RequireAuth component checks useAuth() — if null, redirects to /login
+6. /reset-password consumes the recovery-link session (detectSessionInUrl) and
+   calls supabase.auth.updateUser({ password })
 ```
 
 ### API Integration (Frontend)
 
 ```
 api.ts (fetch wrapper)
-├─ Gets session from Supabase SDK → access_token
-├─ Attaches: Authorization: Bearer <token>
-├─ All requests validated on backend via requireAuth middleware
+├─ resolveApiUrl(): picks local vs prod backend from the host the app is served
+│   from; VITE_API_URL only overrides when it matches the current env (a stale
+│   value can never cause dev→prod / prod→localhost CORS failures)
+├─ Attaches Authorization: Bearer <access_token from sessionStorage>
+├─ Attaches X-CSRF-Token on every mutation (POST/PUT/DELETE/PATCH)
+├─ On 401: refreshSession() once, re-fetch CSRF token, then retry the request
 └─ Parses errors, throws for UI error boundaries
 ```
 
@@ -102,12 +115,16 @@ api.ts (fetch wrapper)
 ```
 server/src/
 ├─ index.ts            # Express app initialization
-├─ app.ts              # Middleware, route registration
+├─ app.ts              # Security headers, CORS, JSON limit, route registration
 ├─ config.ts           # Environment variables (dotenv + Zod validation)
 └─ middleware/
-   ├─ auth.ts          # requireAuth — validates Bearer JWT with Supabase
+   ├─ auth.ts          # requireAuth — verifies Bearer JWT locally via Supabase
+   │                   #   JWKS (jose), no per-request call to Supabase
+   ├─ csrf.ts          # generateCsrfToken + validateCsrfToken (HMAC, timing-safe)
    └─ error.ts         # Global error handling
 ```
+
+Every response carries hardening headers set in `app.ts`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and a `Permissions-Policy` disabling camera/microphone/geolocation. CORS allows only `ALLOWED_ORIGINS` and the `Authorization` + `X-CSRF-Token` headers.
 
 ### API Endpoints
 
@@ -118,15 +135,27 @@ Input:  { imageBase64: string, mimeType: string }
 Process:
   1. Validate request (Zod schema)
   2. Compute SHA-256 hash of image bytes
-  3. Check if user already analyzed this exact image (dedupe)
-     → if yes: return cached result with { cached: true }
-     → if no: continue
-  4. Call Gemini 2.5 Flash with image → structured JSON
-  5. Parse response, compute totals
-  6. Upload image to Supabase Storage
-  7. Insert meal row to Postgres (+ image_path, image_hash, nutrition JSON)
-  8. Return meal + signed URL (1 hour TTL)
-Output: { meal: Meal, cached: boolean }
+  3. Dedupe: same user + same image → return stored result (cached: true).
+     Cached hits skip the rate limit and the Gemini call.
+  4. Rate limit: ≤10 NEW analyses per user per UTC day → else 429
+  5. Call Gemini 2.5 Flash with image → structured JSON
+  6. Non-food guard: if Gemini returns an empty food array, return
+     { isFood: false, message } — nothing is uploaded or written to the DB,
+     and it does not count toward the daily limit
+  7. Upload image to Supabase Storage; insert meal row to Postgres
+  8. Return slim meal (id, createdAt, imageUrl, nutrition) + signed URL (1h TTL)
+Output: { isFood: true, meal: Meal, cached: boolean }
+      | { isFood: false, message: string }
+```
+
+#### `GET /api/auth/csrf`
+
+```
+Auth:   requireAuth (Bearer token)
+Logic:  Return a stateless CSRF token = HMAC(accessToken, CSRF_SECRET).
+        Tied to the access token, so it auto-expires with it and is never
+        stored server-side. The client must re-fetch after every token refresh.
+Output: { csrfToken: string }
 ```
 
 #### `GET /api/meals/recent`
@@ -143,10 +172,10 @@ Output: { meals: Meal[] }
 
 ```
 Logic:
-  1. Fetch meals older than 7 days (for this user)
-  2. Aggregate by UTC day: sum calories/protein/carbs/fat/fibre
+  1. Fetch meals older than 7 days (for this user), via meal_daily_totals view
+  2. Aggregate by UTC day: meal_count + sum calories/protein/carbs/fat/fibre
   3. Return per-day totals (no photos, no individual items)
-Output: { days: DailyTotal[] }
+Output: { days: DailyTotal[] }   // each row includes mealCount
 ```
 
 #### `GET /health`
@@ -217,27 +246,32 @@ Browser          Supabase           Backend
 ### API Request with Auth
 
 ```
-Browser                      Backend              Supabase
-  │                            │                     │
-  ├─ GET /api/meals/recent ────┤                     │
-  │  Authorization: Bearer JWT  │                     │
-  │                             ├─ extract token    │
-  │                             ├─ verify token ────┤
-  │                             │◄─ valid: { user } │
-  │                             ├─ query user meals │
-  │◄─ { meals: [...] } ────────┤                    │
-  │                             │                    │
+Browser                      Backend                  Supabase
+  │                            │                         │
+  ├─ GET /api/meals/recent ────┤                         │
+  │  Authorization: Bearer JWT  │                         │
+  │                             ├─ verify JWT signature   │
+  │                             │  against cached JWKS     │  JWKS fetched once,
+  │                             │  (no network call)       │  refetched only on
+  │                             ├─ user = payload.sub      │  key rotation
+  │                             ├─ query user meals        │
+  │◄─ { meals: [...] } ────────┤                          │
+  │                             │                          │
 ```
 
 ### Token Lifecycle
 
 ```
 Generated:  Supabase creates JWT on login
-Stored:     Browser localStorage (Supabase SDK)
-Sent:       Every API request in Authorization header
-Verified:   Backend calls supabaseAdmin.auth.getUser(token)
-Expires:    Default 1 hour (refreshed transparently by Supabase SDK)
-Logout:     supabase.auth.signOut() → clears session + localStorage
+Stored:     Full session (incl. refresh token) in localStorage by the Supabase
+            SDK; access token also mirrored to sessionStorage for API calls
+Sent:       Every API request in Authorization header (+ X-CSRF-Token on writes)
+Verified:   Backend verifies the JWT signature locally against Supabase's JWKS
+            (jose, cached, auto-refetched on key rotation) — no network round-trip
+            to Supabase per request, checking issuer + "authenticated" audience
+Expires:    Default 1 hour; auto-refreshed by the SDK and by api.ts on a 401.
+            Refresh token keeps the session alive ~30 days
+Logout:     supabase.auth.signOut() → clears session + sessionStorage tokens
 ```
 
 ---
@@ -271,35 +305,30 @@ unique (user_id, image_hash)  — dedupe per user
 ### Data Model (TypeScript)
 
 ```typescript
+// Client-facing shape. user_id / image_hash / image_path stay server-side and
+// are never sent to the browser — the API maps each row down to this.
 interface Meal {
   id: string;
-  userId: string;
-  imageHash: string;
-  imagePath: string | null;
+  createdAt: string;
+  imageUrl: string | null; // short-lived signed URL; null once the image expires
   nutrition: {
-    status: "success" | "error";
-    food?: Array<{
+    status: string; // one-sentence meal description (or reason if not food)
+    food: Array<{
       name: string;
+      quantity: string; // estimated portion, e.g. "150 g" or "1 cup"
       calories: number;
       protein: number;
       carbs: number;
       fat: number;
       fibre: number;
     }>;
-    total: {
-      calories: number;
-      protein: number;
-      carbs: number;
-      fat: number;
-      fibre: number;
-    };
+    total: { calories: number; protein: number; carbs: number; fat: number; fibre: number };
   };
-  createdAt: string;
-  imageUrl?: string; // signed URL (generated on fetch)
 }
 
 interface DailyTotal {
   date: string; // YYYY-MM-DD UTC
+  mealCount: number;
   calories: number;
   protein: number;
   carbs: number;
@@ -316,33 +345,29 @@ interface DailyTotal {
 
 ```
 Input:  base64 JPEG image (max ~1.5MB after downscaling)
-Model:  Google Gemini 2.5 Flash (vision + JSON mode)
-Prompt:
-  "Analyze this meal photo. List each food item with estimated:
-   - name (e.g., 'grilled chicken breast')
-   - calories
-   - protein (g)
-   - carbs (g)
-   - fat (g)
-   - fibre (g)
-
-   Return ONLY valid JSON: { food: [...], total: {...} }"
+Model:  Google Gemini 2.5 Flash, called with a systemInstruction +
+        responseMimeType: "application/json" + a strict responseSchema
+        (so the model is forced to return the exact shape, not free text)
+Asks per item: name, quantity (portion, e.g. "150 g"), calories, protein,
+               carbs, fat, fibre — plus a one-sentence `status`.
+Non-food rule (in the system prompt): if the image has no food, return an
+               empty food array and put the reason in `status`.
 
 Output:
   {
+    "status": "A plate of grilled chicken with brown rice.",
     "food": [
-      { "name": "grilled chicken", "calories": 165, "protein": 31, ... },
-      { "name": "brown rice", "calories": 216, "protein": 5, ... }
-    ],
-    "total": { "calories": 381, "protein": 36, ... }
+      { "name": "grilled chicken", "quantity": "120 g", "calories": 165, ... },
+      { "name": "brown rice",      "quantity": "1 cup",  "calories": 216, ... }
+    ]
   }
 ```
 
 ### Error Handling
 
-- If image can't be parsed → return `{ status: "error", error: "..." }`
-- If Gemini fails → return cached result or error to user
-- Totals always computed server-side (validation, never trust client)
+- Totals are always computed server-side from the items (never trust the model's math, and no `total` field is requested from Gemini)
+- Empty `food` array → treated as "not a food photo" by the controller (see analyze flow), not an error
+- Gemini failures are mapped to clean HTTP codes: quota/rate → 429, bad image → 400, auth/key problems → 500 ("Server misconfigured"), upstream 5xx → 502; unparseable/empty output → 502
 
 ---
 
@@ -417,6 +442,7 @@ Environment:
   ├─ SUPABASE_URL
   ├─ SUPABASE_SERVICE_ROLE_KEY  (secret — never public)
   ├─ SUPABASE_STORAGE_BUCKET
+  ├─ CSRF_SECRET                (secret — openssl rand -hex 32)
   ├─ ALLOWED_ORIGINS            (Cloudflare domain)
   └─ PORT                        (3001)
 
@@ -444,8 +470,8 @@ Managed cloud Postgres
 
 - ✅ Supabase Auth handles password hashing, JWT generation
 - ✅ Bearer token sent on every API request
-- ✅ Backend validates token with Supabase (not local JWT parsing)
-- ✅ Tokens expire naturally (~1 hour)
+- ✅ Backend verifies the JWT signature + issuer + audience locally against Supabase's JWKS (no per-request round-trip; see §12 for the trade-off vs `getUser`)
+- ✅ Tokens expire naturally (~1 hour); refresh keeps sessions alive ~30 days
 
 ### Authorization
 
@@ -463,8 +489,11 @@ Managed cloud Postgres
 
 ### API Security
 
-- ✅ CORS: only Cloudflare domain in ALLOWED_ORIGINS
+- ✅ CORS: only Cloudflare domain in ALLOWED_ORIGINS; allows `Authorization` + `X-CSRF-Token` headers only
 - ✅ All routes require valid Bearer token
+- ✅ CSRF: state-changing requests must carry a `X-CSRF-Token` = HMAC(accessToken, CSRF_SECRET), compared timing-safely (stateless, tied to the user's token)
+- ✅ Hardening headers on every response (nosniff, frame-deny, referrer-policy, permissions-policy)
+- ✅ Rate limit: 10 new Gemini analyses per user per day (cached + non-food don't count)
 - ✅ Input validation with Zod (image format, size, schema)
 - ✅ Error messages don't leak internal details
 
@@ -474,13 +503,14 @@ Managed cloud Postgres
 
 ### Bottlenecks & Mitigations
 
-| Component            | Issue            | Mitigation                                      |
-| -------------------- | ---------------- | ----------------------------------------------- |
-| **Gemini API**       | ~2-3s per call   | Image deduplication (cache hits return instant) |
-| **Storage**          | Upload latency   | Parallel upload after Gemini response           |
-| **Postgres**         | User query scale | Indexes on (user_id, created_at)                |
-| **Signed URLs**      | TTL refresh      | Minted server-side on every fetch               |
-| **Free Render tier** | Cold starts      | UptimeRobot pings keep dyno warm                |
+| Component            | Issue                   | Mitigation                                            |
+| -------------------- | ----------------------- | ----------------------------------------------------- |
+| **Gemini API**       | ~2-3s per call + cost   | Dedup (instant cache hits) + 10 new analyses/user/day |
+| **Auth check**       | Round-trip per request  | Local JWKS verify (jose), cached — no call to Supabase |
+| **Storage**          | Upload latency          | Parallel upload after Gemini response                 |
+| **Postgres**         | User query scale        | Indexes on (user_id, created_at)                      |
+| **Signed URLs**      | TTL refresh             | Minted server-side on every fetch                     |
+| **Free Render tier** | Cold starts             | UptimeRobot pings keep dyno warm                      |
 
 ### Cost Estimate
 
@@ -507,6 +537,7 @@ Managed cloud Postgres
 |               | Zod                     | Schema validation        |
 | **AI**        | Google Gemini 2.5 Flash | Vision + structured JSON |
 | **Auth**      | Supabase Auth           | Email/password + JWT     |
+|               | jose                    | Local JWT/JWKS verify    |
 | **Database**  | Supabase Postgres       | Relational data + RLS    |
 | **Storage**   | Supabase Storage        | Private image bucket     |
 | **Hosting**   | Cloudflare Workers      | Frontend SSR             |
@@ -530,11 +561,21 @@ Managed cloud Postgres
 - Fast inference (~2-3 seconds)
 - Cost-effective (~<$0.01 per meal)
 
-### Why server-side token validation instead of local JWT parsing?
+### Why local JWKS verification instead of calling `getUser()`?
 
-- Tokens can be revoked server-side without waiting for expiry
-- No need to manage Supabase's JWKS locally
-- Simple `getUser()` call validates + retrieves user in one trip
+- Earlier versions called `supabase.auth.getUser(token)` on every request — a network round-trip to Supabase that adds latency and a hard dependency on Supabase being reachable for *every* API call
+- `jose` verifies the JWT signature locally against Supabase's published JWKS, which it fetches once and caches (auto-refetching only on key rotation)
+- Trade-off accepted: a token stays valid until it expires (~1 h) even if revoked server-side — fine for this app, and the short lifetime bounds the window
+
+### Why a stateless HMAC CSRF token?
+
+- Bearer-token APIs are mostly CSRF-resistant, but the defence-in-depth `X-CSRF-Token` adds protection cheaply
+- HMAC(accessToken, CSRF_SECRET) needs no server-side store and auto-expires with the access token — no session table, no cleanup
+
+### Why reject non-food images instead of storing them?
+
+- Saves a storage write + DB row + a slot against the daily rate limit
+- The user gets an immediate, descriptive reason rather than a meaningless 0-calorie "meal" in their history
 
 ### Why image deduplication by hash?
 

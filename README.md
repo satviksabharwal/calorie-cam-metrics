@@ -1,26 +1,33 @@
 # CalorieCam
 
+**Live app:** https://app.calorie-cam.workers.dev/
+
 Snap a photo of your meal and instantly get a full nutrition breakdown — calories, protein, carbs, fat, and fibre. Meals are saved to your account so you can track what you eat over time.
 
 ## What it does
 
-- **Analyze a meal** — take or upload a photo and get per-item nutrition estimates powered by the Gemini 2.5 Flash vision model
-- **Meal history** — last 7 days show the photo alongside the full nutrition breakdown; older entries show daily totals only
+- **Analyze a meal** — upload a photo and get per-item nutrition estimates (with estimated portion size) powered by the Gemini 2.5 Flash vision model
+- **Non-food detection** — photos with no food are rejected with a friendly message and never stored or counted
+- **Meal history** — last 7 days show the photo alongside the full nutrition breakdown; older entries show daily totals (with meal counts) only
 - **Smart deduplication** — uploading the same photo twice returns the stored result instantly with no AI call
-- **Multi-user** — full email/password auth via Supabase; each user's data is completely isolated
+- **Multi-user** — email/password auth via Supabase (first/last name on signup, password reset, ~30-day sessions); each user's data is completely isolated
+- **Fair-use limit** — up to 10 new analyses per user per day (cached and non-food uploads don't count)
 - **Auto image cleanup** — meal photos are deleted from storage after 7 days (nutrition data is kept forever)
 
 ## Architecture
 
 ```
 Browser (TanStack Start on Cloudflare Workers)
-  ├─ supabase-js ──► Supabase Auth (login / session)
-  ├─ fetch + Bearer JWT ──► Express API (Render)
-  │     ├─ POST /api/meals/analyze   hash → dedupe → Gemini → Storage → Postgres
-  │     ├─ GET  /api/meals/recent    last 7 days with signed image URLs
+  ├─ supabase-js ──► Supabase Auth (login / session / refresh)
+  ├─ fetch + Bearer JWT + X-CSRF-Token ──► Express API (Render)
+  │     │   (API verifies the JWT locally against Supabase's JWKS — no round-trip)
+  │     ├─ GET  /api/auth/csrf        per-token stateless CSRF token
+  │     ├─ POST /api/meals/analyze    hash → dedupe → rate-limit → Gemini → Storage → Postgres
+  │     │                             (non-food images short-circuit, nothing stored)
+  │     ├─ GET  /api/meals/recent     last 7 days with signed image URLs
   │     ├─ GET  /api/meals/daily-totals  per-day aggregates older than 7 days
-  │     ├─ node-cron daily 00:05     delete storage images >7 days old
-  │     └─ GET  /health              UptimeRobot keep-warm target
+  │     ├─ node-cron daily 00:05      delete storage images >7 days old
+  │     └─ GET  /health               UptimeRobot keep-warm target
   └─ <img src=signed-url> ──► Supabase Storage (private bucket)
 ```
 
@@ -33,7 +40,7 @@ Browser (TanStack Start on Cloudflare Workers)
 | Backend | Node.js, Express |
 | AI | Google Gemini 2.5 Flash (vision + structured JSON output) |
 | Database | Supabase Postgres |
-| Auth | Supabase Auth (email/password) |
+| Auth | Supabase Auth (email/password) + jose (local JWKS JWT verification) |
 | Storage | Supabase Storage (private bucket, signed URLs) |
 | Frontend hosting | Cloudflare Workers |
 | Backend hosting | Render (free tier + UptimeRobot keep-warm) |
@@ -44,27 +51,31 @@ Browser (TanStack Start on Cloudflare Workers)
 /                        # Frontend (TanStack Start + Vite)
 ├─ src/
 │   ├─ routes/
-│   │   ├─ index.tsx     # Analyze page
-│   │   ├─ history.tsx   # Meal history page
-│   │   └─ login.tsx     # Auth page
+│   │   ├─ index.tsx          # Analyze page
+│   │   ├─ history.tsx        # Meal history page
+│   │   ├─ login.tsx          # Sign up / sign in / request password reset
+│   │   └─ reset-password.tsx # Set a new password from a recovery link
 │   ├─ components/
 │   │   ├─ ResultCard.tsx
 │   │   ├─ MacroBar.tsx
 │   │   └─ RequireAuth.tsx
-│   ├─ hooks/useAuth.ts
+│   ├─ hooks/useAuth.ts       # Mirrors access token to sessionStorage + CSRF
 │   └─ lib/
-│       ├─ api.ts        # Fetch wrapper (attaches Bearer token)
-│       ├─ image.ts      # HEIC→JPEG + canvas downscale
-│       ├─ supabase.ts   # Browser Supabase client
-│       └─ nutrition.ts  # Shared nutrition types
-└─ server/               # Backend (Express — separate deploy)
+│       ├─ api.ts             # Fetch wrapper: env-aware base URL, Bearer +
+│       │                     #   CSRF headers, 401 refresh-and-retry
+│       ├─ image.ts           # HEIC→JPEG + canvas downscale
+│       ├─ supabase.ts        # Browser Supabase client
+│       └─ nutrition.ts       # Shared nutrition types
+└─ server/                    # Backend (Express — separate deploy)
     ├─ src/
     │   ├─ services/
-    │   │   ├─ gemini.service.ts    # Vision analysis
-    │   │   ├─ meals.service.ts     # DB queries (dedupe, insert, history)
+    │   │   ├─ gemini.service.ts    # Vision analysis (structured JSON schema)
+    │   │   ├─ meals.service.ts     # DB queries (dedupe, insert, history, daily count)
     │   │   └─ storage.service.ts   # Upload, signed URLs, batch remove
     │   ├─ controllers/meals.controller.ts
-    │   ├─ middleware/auth.ts        # Bearer JWT → Supabase getUser
+    │   ├─ routes/auth.routes.ts     # GET /api/auth/csrf
+    │   ├─ middleware/auth.ts        # Bearer JWT → local JWKS verify (jose)
+    │   ├─ middleware/csrf.ts        # Stateless HMAC CSRF token + validation
     │   ├─ jobs/cleanup.job.ts       # Daily image expiry cron
     │   ├─ schemas/nutrition.ts      # Zod schemas + computeTotals
     │   └─ lib/{supabase,hash}.ts
@@ -76,10 +87,12 @@ Browser (TanStack Start on Cloudflare Workers)
 1. **Client** converts HEIC photos to JPEG (via `heic2any`) and downscales to a max 1568px long edge at JPEG quality 0.85, then sends `{ imageBase64, mimeType }` to the API
 2. **Server** validates the input and computes a SHA-256 hash of the image bytes
 3. **Dedupe check** — if this user has analyzed the same image before, the stored result is returned immediately (`cached: true`) with no Gemini call
-4. **Gemini** receives the base64 image and returns a structured JSON response listing each food item with calories, protein, carbs, fat and fibre
-5. Totals are computed server-side (always equal the sum of items)
-6. The image is uploaded to Supabase Storage; then the meal row is inserted to Postgres
-7. A signed URL (1 hour TTL) is returned so the browser can display the photo without exposing the storage bucket publicly
+4. **Rate limit** — otherwise, if the user has already run 10 new analyses today, the request is rejected with `429`
+5. **Gemini** receives the base64 image and returns a structured JSON response listing each food item with an estimated portion size, calories, protein, carbs, fat and fibre
+6. **Non-food short-circuit** — if Gemini returns no food items, the server responds `{ isFood: false, message }` and stores nothing (no upload, no DB row, no rate-limit charge)
+7. Totals are computed server-side (always equal the sum of items)
+8. The image is uploaded to Supabase Storage; then the meal row is inserted to Postgres
+9. A signed URL (1 hour TTL) is returned (`{ isFood: true, meal, cached }`) so the browser can display the photo without exposing the storage bucket publicly
 
 ## Database schema
 
@@ -96,7 +109,7 @@ create table public.meals (
 );
 
 -- meal_daily_totals: view for the "Earlier" section
--- aggregates calories/protein/carbs/fat/fibre by UTC day per user
+-- aggregates meal_count + calories/protein/carbs/fat/fibre by UTC day per user
 ```
 
 RLS is enabled on `meals`. The browser (anon key) can only read its own rows. All writes go through the server using the service role key which bypasses RLS.
@@ -139,6 +152,8 @@ GEMINI_API_KEY=AIza...
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...       # service_role key — keep secret
 SUPABASE_STORAGE_BUCKET=meal-images
+
+CSRF_SECRET=...                        # 32+ char secret — generate: openssl rand -hex 32
 
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:8080
 PORT=3001
@@ -184,9 +199,11 @@ Set `VITE_API_URL` to your Render URL and add the Cloudflare Workers domain to `
 
 ## Security notes
 
-- The service role key and Gemini API key live only in `server/.env` and the Render dashboard — never in the frontend bundle
+- The service role key, Gemini API key and `CSRF_SECRET` live only in `server/.env` and the Render dashboard — never in the frontend bundle
 - Supabase RLS ensures users can only query their own meals even if the anon key is used directly
-- All meal routes require a valid Supabase Bearer token; the server verifies it with `supabase.auth.getUser()` on every request
+- All meal routes require a valid Supabase Bearer token; the server verifies the JWT signature locally against Supabase's JWKS (via `jose`) rather than calling Supabase on every request
+- State-changing requests also require an `X-CSRF-Token` header — a stateless `HMAC(accessToken, CSRF_SECRET)` checked with a timing-safe comparison
+- Every API response sets hardening headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`)
 - Storage images are private; the browser only ever gets short-lived signed URLs minted by the server
 - Image deduplication is per-user — the same photo uploaded by two different users triggers two separate Gemini calls
 
