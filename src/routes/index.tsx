@@ -40,7 +40,6 @@ function Index() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<NutritionResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -129,29 +128,11 @@ function Index() {
                 <Upload className="mr-2 h-4 w-4" />
                 Upload photo
               </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => cameraRef.current?.click()}
-                disabled={loading}
-                className="rounded-full"
-              >
-                <Camera className="mr-2 h-4 w-4" />
-                Take photo
-              </Button>
             </div>
             <input
               ref={inputRef}
               type="file"
               accept="image/*"
-              hidden
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            />
-            <input
-              ref={cameraRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
               hidden
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
             />

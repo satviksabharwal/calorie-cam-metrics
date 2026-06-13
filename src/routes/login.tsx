@@ -18,7 +18,7 @@ export const Route = createFileRoute("/login")({
 function Login() {
   const navigate = useNavigate();
   const { session, loading } = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -31,6 +31,13 @@ function Login() {
     }
   }, [loading, session, navigate]);
 
+  const switchMode = (next: "signin" | "signup" | "forgot") => {
+    setMode(next);
+    setPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "signup" && password !== confirmPassword) {
@@ -39,6 +46,15 @@ function Login() {
     }
     setSubmitting(true);
     try {
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
+        if (error) throw error;
+        toast.success("Check your email for a reset link");
+        return;
+      }
+
       let session;
       if (mode === "signin") {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -81,12 +97,18 @@ function Login() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              {mode === "signin" ? "Welcome back" : "Create your account"}
+              {mode === "signin"
+                ? "Welcome back"
+                : mode === "signup"
+                  ? "Create your account"
+                  : "Reset your password"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {mode === "signin"
                 ? "Sign in to track your meals"
-                : "Sign up to start tracking your meals"}
+                : mode === "signup"
+                  ? "Sign up to start tracking your meals"
+                  : "Enter your email and we'll send a reset link"}
             </p>
           </div>
         </div>
@@ -109,30 +131,43 @@ function Login() {
               className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
-          <div className="space-y-1.5">
-            <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                required
-                minLength={6}
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2 pr-10 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+          {mode !== "forgot" && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="text-sm font-medium text-foreground">
+                  Password
+                </label>
+                {mode === "signin" && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode("forgot")}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={6}
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 pr-10 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           {mode === "signup" && (
             <div className="space-y-1.5">
               <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground">
@@ -159,27 +194,37 @@ function Login() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : mode === "signin" ? (
               "Sign in"
-            ) : (
+            ) : mode === "signup" ? (
               "Sign up"
+            ) : (
+              "Send reset link"
             )}
           </Button>
         </form>
 
-        <p className="text-center text-sm text-muted-foreground">
-          {mode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
-          <button
-            type="button"
-            onClick={() => {
-              setMode(mode === "signin" ? "signup" : "signin");
-              setPassword("");
-              setConfirmPassword("");
-              setShowPassword(false);
-            }}
-            className="font-medium text-primary hover:underline"
-          >
-            {mode === "signin" ? "Sign up" : "Sign in"}
-          </button>
-        </p>
+        {mode === "forgot" ? (
+          <p className="text-center text-sm text-muted-foreground">
+            Remembered your password?{" "}
+            <button
+              type="button"
+              onClick={() => switchMode("signin")}
+              className="font-medium text-primary hover:underline"
+            >
+              Back to sign in
+            </button>
+          </p>
+        ) : (
+          <p className="text-center text-sm text-muted-foreground">
+            {mode === "signin" ? "No account yet?" : "Already have an account?"}{" "}
+            <button
+              type="button"
+              onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
+              className="font-medium text-primary hover:underline"
+            >
+              {mode === "signin" ? "Sign up" : "Sign in"}
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );
