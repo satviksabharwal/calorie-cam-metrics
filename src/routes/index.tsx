@@ -1,6 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { Camera, History, Loader2, LogOut, Sparkles, Upload, Utensils, Zap } from "lucide-react";
+import {
+  Camera,
+  History,
+  Loader2,
+  LogOut,
+  Sparkles,
+  Upload,
+  Utensils,
+  UtensilsCrossed,
+  Zap,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResultCard } from "@/components/ResultCard";
 import { RequireAuth } from "@/components/RequireAuth";
@@ -39,6 +49,7 @@ function Index() {
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<NutritionResult | null>(null);
+  const [notFoodMessage, setNotFoodMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
@@ -55,6 +66,7 @@ function Index() {
       return;
     }
     setResult(null);
+    setNotFoodMessage(null);
     setLoading(true);
 
     try {
@@ -67,6 +79,12 @@ function Index() {
         mimeType,
         filename: file.name || "meal.jpg",
       });
+      if (!data.isFood) {
+        // Not a food photo — nothing was stored. Surface the model's reason.
+        setNotFoodMessage(data.message);
+        toast.error(data.message);
+        return;
+      }
       setResult(data.meal.nutrition);
       if (data.cached) {
         toast.info("Same photo analyzed before — showing saved result");
@@ -110,7 +128,7 @@ function Index() {
             </div>
             <h1 className="text-4xl font-bold leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl">
               Snap your meal.{" "}
-              <span className="bg-[image:var(--gradient-hero)] bg-clip-text text-transparent">
+              <span className="bg-(image:--gradient-hero) bg-clip-text text-transparent">
                 Know your macros.
               </span>
             </h1>
@@ -123,7 +141,7 @@ function Index() {
                 size="lg"
                 onClick={() => inputRef.current?.click()}
                 disabled={loading}
-                className="rounded-full bg-[image:var(--gradient-hero)] text-primary-foreground shadow-[var(--shadow-soft)] hover:opacity-90"
+                className="rounded-full bg-(image:--gradient-hero) text-primary-foreground shadow-[var(--shadow-soft)] hover:opacity-90"
               >
                 <Upload className="mr-2 h-4 w-4" />
                 Upload photo
@@ -139,20 +157,20 @@ function Index() {
           </div>
 
           <div className="relative">
-            <div className="absolute -inset-6 rounded-[2rem] bg-[image:var(--gradient-warm)] blur-2xl opacity-70" />
+            <div className="absolute -inset-6 rounded-[2rem] bg-(image:--gradient-warm) blur-2xl opacity-70" />
             <img
               src={heroMeal}
               alt="Healthy meal with salmon, quinoa and avocado"
               width={1536}
               height={1024}
-              className="relative aspect-[4/3] w-full rounded-[1.75rem] object-cover shadow-[var(--shadow-card)]"
+              className="relative aspect-4/3 w-full rounded-[1.75rem] object-cover shadow-(--shadow-card)"
             />
           </div>
         </section>
 
         <section className="mt-4">
-          {(preview || loading || result) && (
-            <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-[var(--shadow-card)]">
+          {(preview || loading || result || notFoodMessage) && (
+            <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-(--shadow-card)">
               <div className="grid gap-0 md:grid-cols-2">
                 <div className="relative aspect-square bg-muted md:aspect-auto">
                   {preview && (
@@ -169,8 +187,16 @@ function Index() {
                 <div className="p-6 md:p-8">
                   {result ? (
                     <ResultCard result={result} />
+                  ) : notFoodMessage ? (
+                    <div className="flex h-full min-h-65 flex-col items-center justify-center text-center">
+                      <UtensilsCrossed className="mb-3 h-8 w-8 text-muted-foreground" />
+                      <h3 className="font-semibold text-foreground">Not a food photo</h3>
+                      <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+                        {notFoodMessage}
+                      </p>
+                    </div>
                   ) : (
-                    <div className="flex h-full min-h-[260px] flex-col items-center justify-center text-center text-muted-foreground">
+                    <div className="flex h-full min-h-65 flex-col items-center justify-center text-center text-muted-foreground">
                       <Sparkles className="mb-3 h-8 w-8 text-primary" />
                       <p className="text-sm">
                         {loading

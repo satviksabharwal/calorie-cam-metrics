@@ -36,9 +36,10 @@ export async function analyzeMeal(req: Request, res: Response) {
   const imageHash = sha256Hex(buffer);
 
   // Dedupe: same user + same image bytes → stored result, no Gemini call.
+  // A stored meal is always food (non-food images are never persisted).
   const existing = await findMealByHash(userId, imageHash);
   if (existing) {
-    return res.json({ meal: await toMealResponse(existing), cached: true });
+    return res.json({ isFood: true, meal: await toMealResponse(existing), cached: true });
   }
 
   // Rate limit: 10 new Gemini analyses per user per day (cached hits don't count).
@@ -51,6 +52,17 @@ export async function analyzeMeal(req: Request, res: Response) {
 
   // Gemini first — a model failure must not leave an orphaned storage object.
   const nutrition = await analyzeWithGemini({ imageBase64, mimeType });
+
+  // Non-food image: the model returns an empty food array with a reason in
+  // `status`. Don't persist anything (no storage upload, no DB row) — just
+  // tell the client why. This also means it never counts toward the daily limit.
+  if (nutrition.food.length === 0) {
+    return res.json({
+      isFood: false,
+      message: nutrition.status || "This doesn't look like a food photo.",
+    });
+  }
+
   const imagePath = await uploadMealImage(userId, imageHash, buffer, mimeType);
 
   const row = await insertMeal({
@@ -60,7 +72,7 @@ export async function analyzeMeal(req: Request, res: Response) {
     nutrition,
   });
 
-  return res.json({ meal: await toMealResponse(row), cached: false });
+  return res.json({ isFood: true, meal: await toMealResponse(row), cached: false });
 }
 
 export async function recentMeals(req: Request, res: Response) {

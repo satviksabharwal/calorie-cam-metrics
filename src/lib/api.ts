@@ -120,11 +120,17 @@ async function request<T>(path: string, init?: RequestInit, retryCount = 0): Pro
   return res.json() as Promise<T>;
 }
 
+// Non-food images aren't analyzed or stored — the server returns isFood: false
+// with a descriptive message instead of a meal.
+export type AnalyzeResponse =
+  | { isFood: true; meal: Meal; cached: boolean }
+  | { isFood: false; message: string };
+
 export function analyzeMeal(input: {
   imageBase64: string;
   mimeType: string;
   filename?: string;
-}): Promise<{ meal: Meal; cached: boolean }> {
+}): Promise<AnalyzeResponse> {
   return request("/api/meals/analyze", {
     method: "POST",
     body: JSON.stringify(input),
