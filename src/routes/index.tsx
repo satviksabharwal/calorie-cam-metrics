@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ResultCard } from "@/components/ResultCard";
 import { RequireAuth } from "@/components/RequireAuth";
-import { signOut } from "@/hooks/useAuth";
+import { signOut, useAuth } from "@/hooks/useAuth";
 import { analyzeMeal } from "@/lib/api";
 import { prepareImageForUpload } from "@/lib/image";
 import type { NutritionResult } from "@/lib/nutrition";
@@ -46,6 +46,8 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const { user } = useAuth();
+  const firstName = (user?.user_metadata?.first_name as string | undefined)?.trim() || "Rockstar";
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<NutritionResult | null>(null);
@@ -127,6 +129,13 @@ function Index() {
               Instant macro analytics
             </div>
             <h1 className="text-4xl font-bold leading-[1.05] tracking-tight text-foreground sm:text-5xl md:text-6xl">
+              <span className="block">
+                Hi{" "}
+                <span className="bg-(image:--gradient-hero) bg-clip-text text-transparent">
+                  {firstName}
+                </span>
+                ,
+              </span>
               Snap your meal.{" "}
               <span className="bg-(image:--gradient-hero) bg-clip-text text-transparent">
                 Know your macros.

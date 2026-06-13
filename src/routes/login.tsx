@@ -19,6 +19,8 @@ function Login() {
   const navigate = useNavigate();
   const { session, loading } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -33,6 +35,8 @@ function Login() {
 
   const switchMode = (next: "signin" | "signup" | "forgot") => {
     setMode(next);
+    setFirstName("");
+    setLastName("");
     setPassword("");
     setConfirmPassword("");
     setShowPassword(false);
@@ -40,9 +44,15 @@ function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "signup" && password !== confirmPassword) {
-      toast.error("Passwords do not match");
-      return;
+    if (mode === "signup") {
+      if (!firstName.trim() || !lastName.trim()) {
+        toast.error("Please enter your first and last name");
+        return;
+      }
+      if (password !== confirmPassword) {
+        toast.error("Passwords do not match");
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -64,7 +74,17 @@ function Login() {
         if (error) throw error;
         session = data.session;
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              first_name: firstName.trim(),
+              last_name: lastName.trim(),
+              full_name: `${firstName.trim()} ${lastName.trim()}`,
+            },
+          },
+        });
         if (error) throw error;
         // With email confirmation enabled there is no session yet.
         if (!data.session) {
@@ -117,6 +137,38 @@ function Login() {
           onSubmit={handleSubmit}
           className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-card)]"
         >
+          {mode === "signup" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="firstName" className="text-sm font-medium text-foreground">
+                  First name
+                </label>
+                <input
+                  id="firstName"
+                  type="text"
+                  required
+                  autoComplete="given-name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="lastName" className="text-sm font-medium text-foreground">
+                  Last name
+                </label>
+                <input
+                  id="lastName"
+                  type="text"
+                  required
+                  autoComplete="family-name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label htmlFor="email" className="text-sm font-medium text-foreground">
               Email
